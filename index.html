@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlante — Diario di viaggio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">✦</span>
+    <div>
+      <h1>Atlante</h1>
+      <p class="brand-sub">Il tuo diario di viaggio</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost" id="btnTags" type="button">Gestisci tag</button>
+    <button class="btn btn-ghost" id="btnTrash" type="button">Cestino <span class="badge" id="trashCount">0</span></button>
+    <button class="btn btn-primary" id="btnNewPlace" type="button">+ Nuovo luogo</button>
+  </div>
+</header>
+
+<section class="controls">
+  <div class="controls-row">
+    <input type="search" id="searchInput" class="search-input" placeholder="Cerca per nome, descrizione, nazione o tag…">
+
+    <select id="sortSelect" class="select">
+      <option value="alpha">Ordina: A → Z</option>
+      <option value="dateDesc">Ordina: più recenti</option>
+      <option value="dateAsc">Ordina: meno recenti</option>
+      <option value="proximity">Ordina: vicinanza a…</option>
+    </select>
+
+    <button class="btn btn-outline" id="btnToggleFilters" type="button">Filtri</button>
+  </div>
+
+  <div class="proximity-row hidden" id="proximityRow">
+    <span class="compass-icon">⤷</span>
+    <input type="text" id="proximityInput" class="text-input" placeholder="Indirizzo o luogo di riferimento (es. Torre Eiffel, Parigi)">
+    <button class="btn btn-outline" id="btnProximitySearch" type="button">Calcola distanze</button>
+    <span class="proximity-status" id="proximityStatus"></span>
+  </div>
+
+  <div class="filters-panel hidden" id="filtersPanel">
+    <div class="filter-group">
+      <label class="filter-label">Nazione</label>
+      <select id="countryFilter" class="select">
+        <option value="">Tutte le nazioni</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label">Stato</label>
+      <select id="statusFilter" class="select">
+        <option value="">Tutti gli stati</option>
+        <option value="visited">Visitato</option>
+        <option value="to_visit">Da visitare</option>
+      </select>
+    </div>
+    <div class="filter-group filter-group-tags">
+      <label class="filter-label">Tag</label>
+      <div class="tag-filter-list" id="tagFilterList"></div>
+    </div>
+    <button class="btn btn-text" id="btnClearFilters" type="button">Azzera filtri</button>
+  </div>
+</section>
+
+<main>
+  <div class="results-info" id="resultsInfo"></div>
+  <div class="grid" id="placesGrid"></div>
+  <div class="empty-state hidden" id="emptyState">
+    <p class="empty-title">Nessun luogo trovato</p>
+    <p class="empty-sub">Prova a modificare la ricerca o i filtri, oppure aggiungi un nuovo luogo.</p>
+  </div>
+</main>
+
+<!-- ===== MODAL: Nuovo / Modifica luogo ===== -->
+<div class="modal-overlay hidden" id="placeModalOverlay">
+  <div class="modal modal-large">
+    <div class="modal-header">
+      <h2 id="placeModalTitle">Nuovo luogo</h2>
+      <button class="modal-close" id="placeModalClose" type="button">&times;</button>
+    </div>
+    <form id="placeForm" class="modal-body">
+      <input type="hidden" id="placeId">
+
+      <div class="cover-upload" id="coverPreviewWrap">
+        <img id="coverPreview" class="cover-preview hidden" alt="Anteprima copertina">
+        <div class="cover-placeholder" id="coverPlaceholder">Nessuna foto di copertina</div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Foto di copertina — URL</label>
+          <input type="url" id="coverUrl" class="text-input" placeholder="https://…">
+        </div>
+        <div class="field">
+          <label>oppure carica un file</label>
+          <input type="file" id="coverFile" accept="image/*">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field field-required">
+          <label>Nome del luogo *</label>
+          <input type="text" id="placeName" class="text-input" required>
+        </div>
+        <div class="field field-required">
+          <label>Nazione *</label>
+          <input type="text" id="placeCountry" class="text-input" required>
+        </div>
+      </div>
+
+      <div class="field field-required">
+        <label>Indirizzo o coordinate *</label>
+        <input type="text" id="placeAddress" class="text-input" placeholder="Via, città… oppure 45.4642, 9.1900" required>
+        <p class="field-hint">Se inserisci due numeri separati da virgola verranno letti come coordinate (lat, lng).</p>
+      </div>
+
+      <div class="field">
+        <label>Descrizione</label>
+        <textarea id="placeDescription" class="text-input" rows="3"></textarea>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Orari di apertura</label>
+          <input type="text" id="placeHours" class="text-input" placeholder="es. 9:00–18:00, chiuso lunedì">
+        </div>
+        <div class="field">
+          <label>Prezzo</label>
+          <input type="text" id="placePrice" class="text-input" placeholder="es. €12 oppure Gratuito">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Stato</label>
+        <div class="segmented" id="statusSegmented">
+          <button type="button" class="segmented-option" data-value="to_visit">Da visitare</button>
+          <button type="button" class="segmented-option" data-value="visited">Visitato</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Tag <span class="field-hint-inline">(massimo 10)</span></label>
+        <div class="tag-picker" id="tagPicker"></div>
+        <p class="field-hint" id="tagPickerHint">Nessun tag ancora creato. Usa "Gestisci tag" per crearne.</p>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="placeCancelBtn">Annulla</button>
+        <button type="submit" class="btn btn-primary">Salva luogo</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== MODAL: Dettaglio luogo ===== -->
+<div class="modal-overlay hidden" id="detailModalOverlay">
+  <div class="modal modal-large">
+    <div class="modal-header">
+      <h2 id="detailTitle">Luogo</h2>
+      <button class="modal-close" id="detailModalClose" type="button">&times;</button>
+    </div>
+    <div class="modal-body" id="detailBody"></div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Gestione tag ===== -->
+<div class="modal-overlay hidden" id="tagsModalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Gestisci tag</h2>
+      <button class="modal-close" id="tagsModalClose" type="button">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="new-tag-row">
+        <input type="text" id="newTagName" class="text-input" placeholder="Nome nuovo tag">
+        <input type="color" id="newTagColor" value="#2F6D69" title="Colore tag">
+        <button class="btn btn-primary" id="btnAddTag" type="button">Aggiungi</button>
+      </div>
+      <ul class="tag-manage-list" id="tagManageList"></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Cestino ===== -->
+<div class="modal-overlay hidden" id="trashModalOverlay">
+  <div class="modal modal-large">
+    <div class="modal-header">
+      <h2>Cestino</h2>
+      <button class="modal-close" id="trashModalClose" type="button">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="field-hint">Gli elementi nel cestino vengono eliminati automaticamente dopo 60 giorni. Puoi ripristinarli o svuotare il cestino in qualsiasi momento.</p>
+      <div class="trash-toolbar">
+        <button class="btn btn-danger-outline" id="btnEmptyTrash" type="button">Svuota cestino</button>
+      </div>
+      <ul class="trash-list" id="trashList"></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Conferma ===== -->
+<div class="modal-overlay hidden" id="confirmModalOverlay">
+  <div class="modal modal-small">
+    <div class="modal-body">
+      <p id="confirmMessage" class="confirm-message"></p>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" id="confirmCancelBtn">Annulla</button>
+        <button type="button" class="btn btn-danger" id="confirmOkBtn">Conferma</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast hidden" id="toast"></div>
+
+<script src="script.js"></script>
+</body>
+          </html>
+          
