@@ -16,13 +16,13 @@
   <div class="brand">
     <span class="brand-mark">✦</span>
     <div>
-      <h1>Volpe</h1>
-      <p class="brand-sub">La tua compagna di viaggio</p>
+      <h1>Atlante</h1>
+      <p class="brand-sub">Il tuo diario di viaggio</p>
     </div>
   </div>
   <div class="topbar-actions">
     <div class="sync-area" id="syncArea">
-      <button class="btn btn-outline" id="btnGoogleSignIn" type="button">Accedi con Google</button>
+      <button class="btn btn-outline" id="btnGoogleSignIn" type="button">🔒 Accedi con Google</button>
       <div class="sync-status hidden" id="syncStatusWrap">
         <span class="sync-dot" id="syncDot" title="Stato sincronizzazione"></span>
         <span class="sync-text" id="syncText">Sincronizzato</span>
@@ -30,14 +30,19 @@
       </div>
     </div>
     <button class="btn btn-ghost" id="btnTags" type="button">Gestisci tag</button>
-    <button class="btn btn-ghost" id="btnTrash" type="button">Cestino<span class="badge" id="trashCount">0</span></button>
+    <button class="btn btn-ghost" id="btnTrash" type="button">Cestino <span class="badge" id="trashCount">0</span></button>
     <button class="btn btn-primary" id="btnNewPlace" type="button">+ Nuovo luogo</button>
   </div>
 </header>
 
-<section class="controls">
+<nav class="view-tabs">
+  <button class="view-tab active" id="tabPlaces" type="button">📍 Luoghi</button>
+  <button class="view-tab" id="tabItinerary" type="button">🗓️ Itinerario</button>
+</nav>
+
+<section class="controls" id="placesControls">
   <div class="controls-row">
-    <input type="search" id="searchInput" class="search-input" placeholder="Cerca">
+    <input type="search" id="searchInput" class="search-input" placeholder="Cerca per nome, descrizione, nazione o tag…">
 
     <select id="sortSelect" class="select">
       <option value="alpha">Ordina: A → Z</option>
@@ -64,6 +69,12 @@
       </select>
     </div>
     <div class="filter-group">
+      <label class="filter-label">Città</label>
+      <select id="cityFilter" class="select">
+        <option value="">Tutte le città</option>
+      </select>
+    </div>
+    <div class="filter-group">
       <label class="filter-label">Stato</label>
       <select id="statusFilter" class="select">
         <option value="">Tutti gli stati</option>
@@ -79,12 +90,43 @@
   </div>
 </section>
 
-<main>
+<main id="placesMain">
   <div class="results-info" id="resultsInfo"></div>
   <div class="grid" id="placesGrid"></div>
   <div class="empty-state hidden" id="emptyState">
     <p class="empty-title">Nessun luogo trovato</p>
     <p class="empty-sub">Prova a modificare la ricerca o i filtri, oppure aggiungi un nuovo luogo.</p>
+  </div>
+</main>
+
+<main id="itineraryMain" class="hidden">
+  <div class="itinerary-layout">
+    <aside class="days-sidebar">
+      <button class="btn btn-primary btn-full" id="btnNewDay" type="button">+ Nuova giornata</button>
+      <ul class="days-list" id="daysList"></ul>
+    </aside>
+    <section class="day-panel-wrap">
+      <div class="day-empty-state" id="dayEmptyState">
+        <p class="empty-title">Nessuna giornata selezionata</p>
+        <p class="empty-sub">Crea una nuova giornata di viaggio per iniziare a programmare le visite sulla linea del tempo.</p>
+      </div>
+      <div class="day-panel hidden" id="dayPanel">
+        <div class="day-panel-header">
+          <div class="day-panel-titles">
+            <input type="text" id="dayTitleInput" class="day-title-input" placeholder="Es. Giorno 1 — Parigi">
+            <input type="date" id="dayDateInput" class="day-date-input">
+          </div>
+          <div class="day-panel-actions">
+            <button class="btn btn-primary" id="btnAddVisit" type="button">+ Aggiungi visita</button>
+            <button class="btn btn-danger-outline" id="btnDeleteDay" type="button">Elimina giornata</button>
+          </div>
+        </div>
+        <div class="timeline" id="timelineContainer"></div>
+        <div class="timeline-empty hidden" id="timelineEmpty">
+          <p class="empty-sub">Nessuna visita in questa giornata. Aggiungine una per iniziare la linea del tempo.</p>
+        </div>
+      </div>
+    </section>
   </div>
 </main>
 
@@ -122,6 +164,11 @@
           <label>Nazione *</label>
           <input type="text" id="placeCountry" class="text-input" required>
         </div>
+      </div>
+
+      <div class="field">
+        <label>Città</label>
+        <input type="text" id="placeCity" class="text-input" placeholder="Es. Kyoto">
       </div>
 
       <div class="field field-required">
@@ -224,6 +271,63 @@
         <button type="button" class="btn btn-danger" id="confirmOkBtn">Conferma</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Nuova / Modifica visita ===== -->
+<div class="modal-overlay hidden" id="visitModalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="visitModalTitle">Aggiungi visita</h2>
+      <button class="modal-close" id="visitModalClose" type="button">&times;</button>
+    </div>
+    <form id="visitForm" class="modal-body">
+      <input type="hidden" id="visitId">
+      <div class="field field-required">
+        <label>Luogo *</label>
+        <select id="visitPlaceSelect" class="select select-full" required></select>
+        <p class="field-hint" id="visitPlaceHint"></p>
+      </div>
+      <div class="field field-required">
+        <label>Orario della visita *</label>
+        <input type="time" id="visitTime" class="text-input" required min="00:00" max="23:59">
+      </div>
+      <div class="field">
+        <label>Note</label>
+        <textarea id="visitNote" class="text-input" rows="3" placeholder="Eventuali note su questa visita…"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger-outline hidden" id="visitDeleteBtn">Rimuovi visita</button>
+        <button type="button" class="btn btn-ghost" id="visitCancelBtn">Annulla</button>
+        <button type="submit" class="btn btn-primary">Salva visita</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== MODAL: Nuovo / Modifica viaggio ===== -->
+<div class="modal-overlay hidden" id="travelModalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="travelModalTitle">Aggiungi viaggio</h2>
+      <button class="modal-close" id="travelModalClose" type="button">&times;</button>
+    </div>
+    <form id="travelForm" class="modal-body">
+      <input type="hidden" id="travelVisitId">
+      <div class="field field-required">
+        <label>Titolo del viaggio *</label>
+        <input type="text" id="travelTitle" class="text-input" placeholder="Es. Treno regionale, 25 min" required>
+      </div>
+      <div class="field">
+        <label>Descrizione</label>
+        <textarea id="travelDescription" class="text-input" rows="3" placeholder="Dettagli facoltativi: linea, biglietto, punto di incontro…"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger-outline hidden" id="travelDeleteBtn">Rimuovi viaggio</button>
+        <button type="button" class="btn btn-ghost" id="travelCancelBtn">Annulla</button>
+        <button type="submit" class="btn btn-primary">Salva viaggio</button>
+      </div>
+    </form>
   </div>
 </div>
 
