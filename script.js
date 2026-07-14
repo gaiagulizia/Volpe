@@ -25,6 +25,14 @@
   let lastProximityOrigin = null; // {lat, lng, label}
   let placeDistances = {}; // id -> km
 
+  // ---------- Gestione errori globale ----------
+  // Se qualcosa va storto, lo mostriamo a schermo invece di far sembrare
+  // che "i pulsanti non funzionano" senza alcuna spiegazione.
+  window.addEventListener("error", (e) => {
+    console.error("Errore JS:", e.error || e.message);
+    try { showToast("Si è verificato un errore: " + (e.message || "vedi la console del browser (F12)")); } catch (_) {}
+  });
+
   // ---------- Utilità ----------
   const $ = (id) => document.getElementById(id);
   const uid = () => "p_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -202,7 +210,14 @@
     const empty = $("emptyState");
     const info = $("resultsInfo");
 
-    info.textContent = `${list.length} luog${list.length === 1 ? "o" : "hi"} · ${places.filter((p) => !p.deletedAt && p.status === "visited").length} visitati · ${places.filter((p) => !p.deletedAt && p.status === "to_visit").length} da visitare`;
+    const sortMode = $("sortSelect").value;
+    if (sortMode === "proximity" && !lastProximityOrigin) {
+      info.textContent = "Inserisci un indirizzo o delle coordinate qui sopra per ordinare i luoghi dal più vicino al più lontano.";
+    } else if (sortMode === "proximity" && lastProximityOrigin) {
+      info.textContent = `${list.length} luog${list.length === 1 ? "o" : "hi"} · ordinati dal più vicino al più lontano rispetto a "${lastProximityOrigin.label}"`;
+    } else {
+      info.textContent = `${list.length} luog${list.length === 1 ? "o" : "hi"} · ${places.filter((p) => !p.deletedAt && p.status === "visited").length} visitati · ${places.filter((p) => !p.deletedAt && p.status === "to_visit").length} da visitare`;
+    }
 
     if (!list.length) {
       grid.innerHTML = "";
@@ -214,7 +229,7 @@
     grid.innerHTML = list
       .map((p) => {
         const cover = p.coverPhoto
-          ? `<img class="card-cover" src="${escapeHtml(p.coverPhoto)}" alt="${escapeHtml(p.name)}" onerror="this.outerHTML='<div class=&quot;card-cover-placeholder&quot;>Immagine non disponibile</div>'">`
+          ? `<img class="card-cover" data-cover-img src="${escapeHtml(p.coverPhoto)}" alt="${escapeHtml(p.name)}">`
           : `<div class="card-cover-placeholder">Nessuna foto</div>`;
         const statusLabel = p.status === "visited" ? "Visitato" : "Da visitare";
         const tagChips = (p.tags || [])
@@ -245,6 +260,19 @@
 
     grid.querySelectorAll(".place-card").forEach((card) => {
       card.addEventListener("click", () => openDetail(card.dataset.id));
+    });
+
+    grid.querySelectorAll("[data-cover-img]").forEach((img) => {
+      img.addEventListener(
+        "error",
+        function handleBrokenImg() {
+          const placeholder = document.createElement("div");
+          placeholder.className = "card-cover-placeholder";
+          placeholder.textContent = "Immagine non disponibile";
+          this.replaceWith(placeholder);
+        },
+        { once: true }
+      );
     });
   }
 
@@ -516,4 +544,201 @@
           tags = tags.filter((t) => t.id !== id);
           places.forEach((p) => { p.tags = (p.tags || []).filter((tid) => tid !== id); });
           activeTagFilters.delete(id);
-          saveTags();
+          saveTags(); savePlaces();
+          renderTagManageList();
+          renderAll();
+          showToast("Tag eliminato.");
+        });
+      });
+    });
+  }
+
+  function addTag() {
+    const nameInput = $("newTagName");
+    const colorInput = $("newTagColor");
+    const name = nameInput.value.trim();
+    if (!name) { showToast("Inserisci un nome per il tag."); return; }
+    if (tags.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+      showToast("Esiste già un tag con questo nome."); return;
+    }
+    tags.push({ id: "t_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, color: colorInput.value });
+    saveTags();
+    nameInput.value = "";
+    colorInput.value = DEFAULT_TAG_COLORS[tags.length % DEFAULT_TAG_COLORS.length];
+    renderTagManageList();
+    renderAll();
+  }
+
+  // ---------- Conferma generica ----------
+  function askConfirm(message, onConfirm) {
+    $("confirmMessage").textContent = message;
+    confirmCallback = onConfirm;
+    $("confirmModalOverlay").classList.remove("hidden");
+  }
+
+  // ---------- Prossimità ----------
+  async function runProximitySearch() {
+    const query = $("proximityInput").value.trim();
+    if (!query) { showToast("Inserisci un indirizzo o un luogo di riferimento."); return; }
+    const status = $("proximityStatus");
+    status.textContent = "Ricerca in corso…";
+    try {
+      let origin = tryParseCoords(query);
+      if (!origin) origin = await geocode(query);
+      if (!origin) { status.textContent = "Indirizzo non trovato."; return; }
+      lastProximityOrigin = { ...origin, label: query };
+
+      placeDistances = {};
+      const withCoords = places.filter((p) => !p.deletedAt && getPlaceCoords(p));
+      withCoords.forEach((p) => {
+        placeDistances[p.id] = haversineKm(origin, getPlaceCoords(p));
+      });
+
+      // Geocodifica anche i luoghi senza coordinate esplicite (indirizzo testuale), in sequenza per rispettare i limiti d'uso.
+      const withoutCoords = places.filter((p) => !p.deletedAt && !getPlaceCoords(p));
+      for (const p of withoutCoords) {
+        try {
+          const c = await geocode(`${p.address}, ${p.country}`);
+          if (c) placeDistances[p.id] = haversineKm(origin, c);
+          await new Promise((r) => setTimeout(r, 350)); // gentile verso il servizio di geocoding gratuito
+        } catch (e) { /* ignora singolo fallimento */ }
+      }
+
+      status.textContent = `✓ Luoghi ordinati dal più vicino al più lontano rispetto a "${query}".`;
+      $("sortSelect").value = "proximity";
+      renderGrid();
+    } catch (err) {
+      console.error(err);
+      status.textContent = "Errore durante la ricerca. Riprova.";
+    }
+  }
+
+  // ---------- Copertina: caricamento file ----------
+  function handleCoverFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      coverDataInForm = { type: "upload", value: reader.result };
+      $("coverUrl").value = "";
+      updateCoverPreview();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // ---------- Render globale ----------
+  function renderAll() {
+    renderCountryFilterOptions();
+    renderTagFilterList();
+    updateTrashCount();
+    renderGrid();
+  }
+
+  // ---------- Event bindings ----------
+  function bindEvents() {
+    $("btnNewPlace").addEventListener("click", () => openPlaceModal(null));
+    $("placeModalClose").addEventListener("click", closePlaceModal);
+    $("placeCancelBtn").addEventListener("click", closePlaceModal);
+    $("placeForm").addEventListener("submit", handlePlaceFormSubmit);
+
+    $("coverUrl").addEventListener("input", (e) => {
+      const val = e.target.value.trim();
+      coverDataInForm = val ? { type: "url", value: val } : { type: null, value: null };
+      $("coverFile").value = "";
+      updateCoverPreview();
+    });
+    $("coverFile").addEventListener("change", (e) => handleCoverFile(e.target.files[0]));
+
+    document.querySelectorAll("#statusSegmented .segmented-option").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentStatusInForm = btn.dataset.value;
+        updateStatusSegmented();
+      });
+    });
+
+    $("detailModalClose").addEventListener("click", closeDetail);
+
+    $("btnTags").addEventListener("click", () => {
+      renderTagManageList();
+      $("tagsModalOverlay").classList.remove("hidden");
+    });
+    $("tagsModalClose").addEventListener("click", () => $("tagsModalOverlay").classList.add("hidden"));
+    $("btnAddTag").addEventListener("click", addTag);
+    $("newTagName").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } });
+
+    $("btnTrash").addEventListener("click", () => {
+      renderTrash();
+      $("trashModalOverlay").classList.remove("hidden");
+    });
+    $("trashModalClose").addEventListener("click", () => $("trashModalOverlay").classList.add("hidden"));
+    $("btnEmptyTrash").addEventListener("click", () => {
+      if (!places.some((p) => p.deletedAt)) { showToast("Il cestino è già vuoto."); return; }
+      askConfirm("Svuotare definitivamente il cestino? L'azione non è reversibile.", () => {
+        places = places.filter((p) => !p.deletedAt);
+        savePlaces();
+        renderTrash();
+        renderAll();
+        showToast("Cestino svuotato.");
+      });
+    });
+
+    $("confirmCancelBtn").addEventListener("click", () => { $("confirmModalOverlay").classList.add("hidden"); confirmCallback = null; });
+    $("confirmOkBtn").addEventListener("click", () => {
+      $("confirmModalOverlay").classList.add("hidden");
+      if (confirmCallback) confirmCallback();
+      confirmCallback = null;
+    });
+
+    // Chiudi modali cliccando sull'overlay
+    document.querySelectorAll(".modal-overlay").forEach((ov) => {
+      ov.addEventListener("click", (e) => { if (e.target === ov) ov.classList.add("hidden"); });
+    });
+
+    $("searchInput").addEventListener("input", renderGrid);
+    $("countryFilter").addEventListener("change", renderGrid);
+    $("statusFilter").addEventListener("change", renderGrid);
+    $("btnClearFilters").addEventListener("click", () => {
+      $("countryFilter").value = "";
+      $("statusFilter").value = "";
+      activeTagFilters.clear();
+      renderTagFilterList();
+      renderGrid();
+    });
+    $("btnToggleFilters").addEventListener("click", () => $("filtersPanel").classList.toggle("hidden"));
+
+    $("sortSelect").addEventListener("change", () => {
+      const isProximity = $("sortSelect").value === "proximity";
+      $("proximityRow").classList.toggle("hidden", !isProximity);
+      if (isProximity) {
+        $("proximityInput").focus();
+        // Se non abbiamo ancora un indirizzo di riferimento, lo chiediamo subito.
+        if (!lastProximityOrigin) {
+          const suggestion = window.prompt(
+            "Ordina per vicinanza: inserisci un indirizzo, il nome di un luogo, oppure delle coordinate (es. 45.4642, 9.1900)."
+          );
+          if (suggestion && suggestion.trim()) {
+            $("proximityInput").value = suggestion.trim();
+            runProximitySearch();
+          }
+        }
+      }
+      renderGrid();
+    });
+    $("btnProximitySearch").addEventListener("click", runProximitySearch);
+    $("proximityInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); runProximitySearch(); } });
+  }
+
+  // ---------- Avvio ----------
+  function init() {
+    try {
+      loadData();
+      purgeExpiredTrash();
+      bindEvents();
+      renderAll();
+    } catch (err) {
+      console.error("Errore durante l'avvio dell'app:", err);
+      showToast("Errore all'avvio: apri la console del browser (F12) per i dettagli.");
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", init);
+})();
