@@ -15,7 +15,7 @@
 
   // ---------- Google Drive: configurazione ----------
   // 1. Sostituisci il valore qui sotto con il TUO Client ID (vedi README.md, sezione "Sincronizzazione con Google Drive").
-  const GOOGLE_CLIENT_ID = "1067719049759-ju80ndcffns0aen7cb5t3hshn6qknndu.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_ID = "361800686303-o2l9or0ear8hr052paean09tb9h0h6ti.apps.googleusercontent.com";
   // Scope "drive.appdata": l'app può leggere/scrivere SOLO un proprio file nascosto nel Drive
   // dell'utente, senza mai vedere o toccare gli altri file del suo Google Drive.
   const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
