@@ -9,13 +9,14 @@
   // ---------- Costanti ----------
   const STORAGE_PLACES = "atlante_places_v1";
   const STORAGE_TAGS = "atlante_tags_v1";
+  const STORAGE_DAYS = "atlante_days_v1";
   const TRASH_RETENTION_DAYS = 60;
   const MAX_TAGS_PER_PLACE = 10;
   const DEFAULT_TAG_COLORS = ["#2F6D69", "#C99A3C", "#B5502F", "#5B7FB5", "#7A6BA6", "#4E8C5A"];
 
   // ---------- Google Drive: configurazione ----------
   // 1. Sostituisci il valore qui sotto con il TUO Client ID (vedi README.md, sezione "Sincronizzazione con Google Drive").
-  const GOOGLE_CLIENT_ID = "361800686303-o2l9or0ear8hr052paean09tb9h0h6ti.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_ID = "INSERISCI_QUI_IL_TUO_CLIENT_ID.apps.googleusercontent.com";
   // Scope "drive.appdata": l'app può leggere/scrivere SOLO un proprio file nascosto nel Drive
   // dell'utente, senza mai vedere o toccare gli altri file del suo Google Drive.
   const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
@@ -25,6 +26,8 @@
   // ---------- Stato ----------
   let places = [];
   let tags = [];
+  let days = [];
+  let selectedDayId = null;
   let selectedTagIdsInForm = [];
   let currentStatusInForm = "to_visit";
   let coverDataInForm = { type: null, value: null }; // type: 'url' | 'upload'
@@ -70,9 +73,14 @@
     localStorage.setItem(STORAGE_TAGS, JSON.stringify(tags));
     scheduleCloudPush();
   }
+  function saveDays() {
+    localStorage.setItem(STORAGE_DAYS, JSON.stringify(days));
+    scheduleCloudPush();
+  }
   function loadData() {
     try { places = JSON.parse(localStorage.getItem(STORAGE_PLACES)) || []; } catch (e) { places = []; }
     try { tags = JSON.parse(localStorage.getItem(STORAGE_TAGS)) || []; } catch (e) { tags = []; }
+    try { days = JSON.parse(localStorage.getItem(STORAGE_DAYS)) || []; } catch (e) { days = []; }
   }
 
   function purgeExpiredTrash() {
@@ -87,6 +95,7 @@
   }
 
   function tagById(id) { return tags.find((t) => t.id === id); }
+  function placeById(id) { return places.find((p) => p.id === id); }
 
   // Prova a interpretare l'indirizzo come "lat, lng"
   function tryParseCoords(str) {
@@ -146,6 +155,17 @@
     if (countries.includes(current)) sel.value = current;
   }
 
+  function renderCityFilterOptions() {
+    const sel = $("cityFilter");
+    const current = sel.value;
+    const cities = [...new Set(places.filter((p) => !p.deletedAt && p.city && p.city.trim()).map((p) => p.city.trim()))].sort(
+      (a, b) => a.localeCompare(b, "it")
+    );
+    sel.innerHTML = '<option value="">Tutte le città</option>' +
+      cities.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    if (cities.includes(current)) sel.value = current;
+  }
+
   function renderTagFilterList() {
     const wrap = $("tagFilterList");
     if (!tags.length) {
@@ -193,12 +213,15 @@
         return (
           p.name.toLowerCase().includes(q) ||
           (p.description || "").toLowerCase().includes(q) ||
+          (p.city || "").toLowerCase().includes(q) ||
           p.country.toLowerCase().includes(q) ||
           tagNames.includes(q)
         );
       });
     }
     if (country) list = list.filter((p) => p.country.trim() === country);
+    const city = $("cityFilter").value;
+    if (city) list = list.filter((p) => (p.city || "").trim() === city);
     if (status) list = list.filter((p) => p.status === status);
     if (activeTagFilters.size) {
       list = list.filter((p) => (p.tags || []).some((tid) => activeTagFilters.has(tid)));
@@ -268,7 +291,7 @@
           </div>
           <div class="card-body">
             <div class="card-title">${escapeHtml(p.name)}</div>
-            <div class="card-country">${escapeHtml(p.country)}</div>
+            <div class="card-country">${escapeHtml(p.city ? `${p.city} · ${p.country}` : p.country)}</div>
             ${p.description ? `<div class="card-desc">${escapeHtml(truncate(p.description, 110))}</div>` : ""}
             ${tagChips ? `<div class="card-tags">${tagChips}</div>` : ""}
             ${distHtml}
@@ -365,6 +388,7 @@
     $("placeId").value = place ? place.id : "";
     $("placeName").value = place ? place.name : "";
     $("placeCountry").value = place ? place.country : "";
+    $("placeCity").value = place ? place.city || "" : "";
     $("placeAddress").value = place ? place.address : "";
     $("placeDescription").value = place ? place.description || "" : "";
     $("placeHours").value = place ? place.openingHours || "" : "";
@@ -455,6 +479,7 @@
     const payload = {
       name,
       country,
+      city: $("placeCity").value.trim(),
       address,
       description: $("placeDescription").value.trim(),
       openingHours: $("placeHours").value.trim(),
@@ -500,6 +525,7 @@
       ${cover}
       <div class="detail-meta">
         <span><strong>Nazione:</strong> ${escapeHtml(p.country)}</span>
+        ${p.city ? `<span><strong>Città:</strong> ${escapeHtml(p.city)}</span>` : ""}
         <span><strong>Stato:</strong> ${statusLabel}</span>
         ${p.openingHours ? `<span><strong>Orari:</strong> ${escapeHtml(p.openingHours)}</span>` : ""}
         ${p.price ? `<span><strong>Prezzo:</strong> ${escapeHtml(p.price)}</span>` : ""}
@@ -510,7 +536,7 @@
       <a class="maps-link" target="_blank" rel="noopener" href="${googleMapsUrl(p)}">📍 Apri in Google Maps</a>
       <div class="detail-actions">
         <button class="btn btn-outline" id="detailEditBtn">Modifica</button>
-        <button class="btn btn-danger-outline" id="detailDeleteBtn">Elimina</button>
+        <button class="btn btn-danger-outline" id="detailDeleteBtn">Sposta nel cestino</button>
       </div>
     `;
     $("detailEditBtn").addEventListener("click", () => {
@@ -779,13 +805,13 @@
       const existing = await driveFindFile();
       if (!existing) {
         // Prima connessione: creiamo il file cloud a partire dai dati locali attuali.
-        driveFileId = await driveCreateFile({ places, tags, updatedAt: new Date().toISOString() });
+        driveFileId = await driveCreateFile({ places, tags, days, updatedAt: new Date().toISOString() });
         setSyncUI("ok", "Backup su Drive creato");
         showToast("I tuoi dati locali sono stati caricati su Google Drive.");
         return;
       }
       driveFileId = existing.id;
-      const hasLocalData = places.length > 0 || tags.length > 0;
+      const hasLocalData = places.length > 0 || tags.length > 0 || days.length > 0;
       if (!hasLocalData) {
         // Nessun dato locale: scarichiamo direttamente quello che c'è nel cloud.
         await pullFromDrive();
@@ -820,22 +846,23 @@
     const data = await driveDownloadFile(driveFileId);
     places = Array.isArray(data.places) ? data.places : [];
     tags = Array.isArray(data.tags) ? data.tags : [];
+    days = Array.isArray(data.days) ? data.days : [];
     savePlaces();
     saveTags();
+    saveDays();
     isPulling = false;
     renderAll();
     showToast("Dati scaricati da Google Drive.");
   }
-
   async function pushToDrive() {
     if (!accessToken) return;
     try {
       isPushing = true;
       setSyncUI("syncing");
       if (!driveFileId) {
-        driveFileId = await driveCreateFile({ places, tags, updatedAt: new Date().toISOString() });
+        driveFileId = await driveCreateFile({ places, tags, days, updatedAt: new Date().toISOString() });
       } else {
-        await driveUpdateFile(driveFileId, { places, tags, updatedAt: new Date().toISOString() });
+        await driveUpdateFile(driveFileId, { places, tags, days, updatedAt: new Date().toISOString() });
       }
       setSyncUI("ok", "Sincronizzato con Drive");
     } catch (err) {
@@ -853,16 +880,361 @@
     syncDebounceTimer = setTimeout(pushToDrive, SYNC_DEBOUNCE_MS);
   }
 
+  // ---------- Navigazione fra schermate ----------
+  function switchView(view) {
+    const isPlaces = view === "places";
+    $("tabPlaces").classList.toggle("active", isPlaces);
+    $("tabItinerary").classList.toggle("active", !isPlaces);
+    $("placesControls").classList.toggle("hidden", !isPlaces);
+    $("placesMain").classList.toggle("hidden", !isPlaces);
+    $("itineraryMain").classList.toggle("hidden", isPlaces);
+    if (!isPlaces) { renderDaysList(); renderDayPanel(); }
+  }
+
+  // ---------- Giornate di viaggio ----------
+  function formatDateHuman(dateStr) {
+    if (!dateStr) return "";
+    try {
+      return new Date(dateStr + "T00:00:00").toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" });
+    } catch (e) { return dateStr; }
+  }
+
+  function createNewDay() {
+    const newDay = { id: uid(), title: `Giorno ${days.length + 1}`, date: "", dateAdded: new Date().toISOString(), visits: [] };
+    days.push(newDay);
+    saveDays();
+    selectedDayId = newDay.id;
+    renderDaysList();
+    renderDayPanel();
+    showToast("Nuova giornata creata.");
+  }
+
+  function deleteDay(dayId) {
+    const day = days.find((d) => d.id === dayId);
+    if (!day) return;
+    askConfirm(`Eliminare "${day.title || "questa giornata"}"? Tutte le visite e i viaggi collegati andranno persi.`, () => {
+      days = days.filter((d) => d.id !== dayId);
+      saveDays();
+      if (selectedDayId === dayId) selectedDayId = days.length ? days[0].id : null;
+      renderDaysList();
+      renderDayPanel();
+      showToast("Giornata eliminata.");
+    });
+  }
+
+  function selectDay(dayId) {
+    selectedDayId = dayId;
+    renderDaysList();
+    renderDayPanel();
+  }
+
+  function sortedDays() {
+    return [...days].sort((a, b) => {
+      if (a.date && b.date) return a.date.localeCompare(b.date);
+      if (a.date) return -1;
+      if (b.date) return 1;
+      return new Date(a.dateAdded) - new Date(b.dateAdded);
+    });
+  }
+
+  function renderDaysList() {
+    const ul = $("daysList");
+    if (!days.length) {
+      ul.innerHTML = '<li class="days-list-empty">Nessuna giornata creata. Clicca "+ Nuova giornata" per iniziare.</li>';
+      return;
+    }
+    ul.innerHTML = sortedDays()
+      .map((d) => {
+        const meta = d.date ? formatDateHuman(d.date) : `${d.visits.length} tapp${d.visits.length === 1 ? "a" : "e"}`;
+        return `
+        <li class="day-list-item ${d.id === selectedDayId ? "active" : ""}" data-day-id="${d.id}">
+          <span class="day-item-title">${escapeHtml(d.title || "Senza titolo")}</span>
+          <span class="day-item-meta">${escapeHtml(meta)}</span>
+        </li>`;
+      })
+      .join("");
+    ul.querySelectorAll("[data-day-id]").forEach((li) => {
+      li.addEventListener("click", () => selectDay(li.dataset.dayId));
+    });
+  }
+
+  function renderDayPanel() {
+    const day = days.find((d) => d.id === selectedDayId);
+    const emptyState = $("dayEmptyState");
+    const panel = $("dayPanel");
+    if (!day) {
+      emptyState.classList.remove("hidden");
+      panel.classList.add("hidden");
+      return;
+    }
+    emptyState.classList.add("hidden");
+    panel.classList.remove("hidden");
+    $("dayTitleInput").value = day.title || "";
+    $("dayDateInput").value = day.date || "";
+    renderTimeline(day);
+  }
+
+  // ---------- Timeline (visite + viaggi) ----------
+  function getSortedVisits(day) {
+    return [...day.visits].sort((a, b) => a.time.localeCompare(b.time));
+  }
+
+  function renderTimeline(day) {
+    const container = $("timelineContainer");
+    const emptyEl = $("timelineEmpty");
+    const visits = getSortedVisits(day);
+
+    if (!visits.length) {
+      container.innerHTML = "";
+      emptyEl.classList.remove("hidden");
+      return;
+    }
+    emptyEl.classList.add("hidden");
+
+    let html = "";
+    visits.forEach((v, idx) => {
+      const place = placeById(v.placeId);
+      const isFirst = idx === 0;
+      const isLast = idx === visits.length - 1;
+
+      const placeHtml = place
+        ? `<div class="timeline-place-box" data-role="open-place" data-place-id="${place.id}">
+             ${place.coverPhoto ? `<img class="timeline-place-thumb" src="${escapeHtml(place.coverPhoto)}" alt="">` : `<div class="timeline-place-thumb-placeholder"></div>`}
+             <div class="timeline-place-info">
+               <div class="timeline-place-name">${escapeHtml(place.name)}</div>
+               <div class="timeline-place-sub">${escapeHtml(place.city ? `${place.city} · ${place.country}` : place.country)}</div>
+             </div>
+           </div>`
+        : `<div class="timeline-place-missing">⚠ Luogo non trovato (forse eliminato)</div>`;
+
+      const noteHtml = v.note
+        ? `<div class="timeline-note-box has-note" data-role="edit-note" data-visit-id="${v.id}">${escapeHtml(v.note)}</div>`
+        : `<div class="timeline-note-box" data-role="edit-note" data-visit-id="${v.id}">+ Aggiungi nota</div>`;
+
+      html += `
+        <div class="timeline-row visit-row ${isFirst ? "is-first" : ""} ${isLast ? "is-last" : ""}" data-visit-id="${v.id}">
+          <div class="timeline-time" data-role="edit-time" data-visit-id="${v.id}">${escapeHtml(v.time)}</div>
+          <div class="spine-col"><span class="timeline-dot"></span></div>
+          ${placeHtml}
+          ${noteHtml}
+        </div>`;
+
+      if (!isLast) {
+        html += v.travelAfter
+          ? `<div class="timeline-row travel-row" data-visit-id="${v.id}">
+               <div></div>
+               <div class="spine-col travel-arrow-col"><span class="arrow-tip"></span></div>
+               <div class="travel-box" data-role="edit-travel" data-visit-id="${v.id}">
+                 <div>
+                   <div class="travel-box-title">🧭 ${escapeHtml(v.travelAfter.title)}</div>
+                   ${v.travelAfter.description ? `<div class="travel-box-desc">${escapeHtml(v.travelAfter.description)}</div>` : ""}
+                 </div>
+               </div>
+             </div>`
+          : `<div class="timeline-row travel-row" data-visit-id="${v.id}">
+               <div></div>
+               <div class="spine-col travel-arrow-col"><span class="arrow-tip"></span></div>
+               <button type="button" class="travel-add-btn" data-role="add-travel" data-visit-id="${v.id}">+ Aggiungi viaggio</button>
+             </div>`;
+      }
+    });
+
+    container.innerHTML = html;
+
+    container.querySelectorAll('[data-role="edit-time"], [data-role="edit-note"]').forEach((el) => {
+      el.addEventListener("click", () => openVisitModal(day.id, el.dataset.visitId));
+    });
+    container.querySelectorAll('[data-role="open-place"]').forEach((el) => {
+      el.addEventListener("click", (e) => { e.stopPropagation(); openDetail(el.dataset.placeId); });
+    });
+    container.querySelectorAll('[data-role="edit-travel"], [data-role="add-travel"]').forEach((el) => {
+      el.addEventListener("click", () => openTravelModal(day.id, el.dataset.visitId));
+    });
+  }
+
+  // ---------- Modale visita ----------
+  let editingVisitDayId = null;
+  let editingVisitId = null;
+
+  function populateVisitPlaceSelect(selectedPlaceId) {
+    const sel = $("visitPlaceSelect");
+    const activePlaces = places.filter((p) => !p.deletedAt).sort((a, b) => a.name.localeCompare(b.name, "it"));
+    if (!activePlaces.length) {
+      sel.innerHTML = "";
+      $("visitPlaceHint").textContent = "Non hai ancora nessun luogo nel database: aggiungine uno nella schermata \"Luoghi\" prima di programmare una visita.";
+      return false;
+    }
+    $("visitPlaceHint").textContent = "";
+    sel.innerHTML = activePlaces
+      .map((p) => `<option value="${p.id}">${escapeHtml(p.name)}${p.city ? " — " + escapeHtml(p.city) : ""} (${escapeHtml(p.country)})</option>`)
+      .join("");
+    if (selectedPlaceId) sel.value = selectedPlaceId;
+    return true;
+  }
+
+  function openVisitModal(dayId, visitId) {
+    const day = days.find((d) => d.id === dayId);
+    if (!day) return;
+    const visit = visitId ? day.visits.find((v) => v.id === visitId) : null;
+    editingVisitDayId = dayId;
+    editingVisitId = visit ? visit.id : null;
+
+    const ok = populateVisitPlaceSelect(visit ? visit.placeId : null);
+    if (!ok) { showToast("Aggiungi prima almeno un luogo nel database."); return; }
+
+    $("visitModalTitle").textContent = visit ? "Modifica visita" : "Aggiungi visita";
+    $("visitId").value = visit ? visit.id : "";
+    $("visitTime").value = visit ? visit.time : "";
+    $("visitNote").value = visit ? visit.note || "" : "";
+    $("visitDeleteBtn").classList.toggle("hidden", !visit);
+    $("visitModalOverlay").classList.remove("hidden");
+  }
+
+  function closeVisitModal() {
+    $("visitModalOverlay").classList.add("hidden");
+    editingVisitDayId = null;
+    editingVisitId = null;
+  }
+
+  function handleVisitFormSubmit(e) {
+    e.preventDefault();
+    const day = days.find((d) => d.id === editingVisitDayId);
+    if (!day) return;
+    const placeId = $("visitPlaceSelect").value;
+    const time = $("visitTime").value;
+    const note = $("visitNote").value.trim();
+    if (!placeId || !time) { showToast("Seleziona un luogo e un orario per la visita."); return; }
+
+    if (editingVisitId) {
+      const v = day.visits.find((v) => v.id === editingVisitId);
+      if (v) { v.placeId = placeId; v.time = time; v.note = note; }
+      showToast("Visita aggiornata.");
+    } else {
+      day.visits.push({ id: uid(), placeId, time, note, travelAfter: null });
+      showToast("Visita aggiunta alla giornata.");
+    }
+    saveDays();
+    closeVisitModal();
+    renderDayPanel();
+    renderDaysList();
+  }
+
+  function deleteVisitFromModal() {
+    if (!editingVisitDayId || !editingVisitId) return;
+    const dayId = editingVisitDayId;
+    const visitId = editingVisitId;
+    askConfirm("Rimuovere questa visita dalla giornata? Anche l'eventuale viaggio collegato verrà rimosso.", () => {
+      const day = days.find((d) => d.id === dayId);
+      if (!day) return;
+      const sorted = getSortedVisits(day);
+      const idx = sorted.findIndex((v) => v.id === visitId);
+      if (idx > 0) sorted[idx - 1].travelAfter = null; // il collegamento verso questa tappa non ha più senso
+      day.visits = day.visits.filter((v) => v.id !== visitId);
+      saveDays();
+      closeVisitModal();
+      renderDayPanel();
+      renderDaysList();
+      showToast("Visita rimossa.");
+    });
+  }
+
+  // ---------- Modale viaggio ----------
+  let editingTravelDayId = null;
+  let editingTravelVisitId = null;
+
+  function openTravelModal(dayId, visitId) {
+    const day = days.find((d) => d.id === dayId);
+    if (!day) return;
+    const visit = day.visits.find((v) => v.id === visitId);
+    if (!visit) return;
+    editingTravelDayId = dayId;
+    editingTravelVisitId = visitId;
+
+    const t = visit.travelAfter;
+    $("travelModalTitle").textContent = t ? "Modifica viaggio" : "Aggiungi viaggio";
+    $("travelVisitId").value = visitId;
+    $("travelTitle").value = t ? t.title : "";
+    $("travelDescription").value = t ? t.description || "" : "";
+    $("travelDeleteBtn").classList.toggle("hidden", !t);
+    $("travelModalOverlay").classList.remove("hidden");
+  }
+
+  function closeTravelModal() {
+    $("travelModalOverlay").classList.add("hidden");
+    editingTravelDayId = null;
+    editingTravelVisitId = null;
+  }
+
+  function handleTravelFormSubmit(e) {
+    e.preventDefault();
+    const day = days.find((d) => d.id === editingTravelDayId);
+    if (!day) return;
+    const visit = day.visits.find((v) => v.id === editingTravelVisitId);
+    if (!visit) return;
+    const title = $("travelTitle").value.trim();
+    if (!title) { showToast("Il titolo del viaggio è obbligatorio."); return; }
+    visit.travelAfter = { title, description: $("travelDescription").value.trim() };
+    saveDays();
+    closeTravelModal();
+    renderDayPanel();
+    showToast("Viaggio salvato.");
+  }
+
+  function deleteTravelFromModal() {
+    if (!editingTravelDayId || !editingTravelVisitId) return;
+    const dayId = editingTravelDayId;
+    const visitId = editingTravelVisitId;
+    askConfirm("Rimuovere questo collegamento di viaggio?", () => {
+      const day = days.find((d) => d.id === dayId);
+      if (day) {
+        const visit = day.visits.find((v) => v.id === visitId);
+        if (visit) visit.travelAfter = null;
+        saveDays();
+      }
+      closeTravelModal();
+      renderDayPanel();
+      showToast("Viaggio rimosso.");
+    });
+  }
+
   // ---------- Render globale ----------
   function renderAll() {
     renderCountryFilterOptions();
+    renderCityFilterOptions();
     renderTagFilterList();
     updateTrashCount();
     renderGrid();
+    renderDaysList();
+    renderDayPanel();
   }
 
   // ---------- Event bindings ----------
   function bindEvents() {
+    $("tabPlaces").addEventListener("click", () => switchView("places"));
+    $("tabItinerary").addEventListener("click", () => switchView("itinerary"));
+
+    $("btnNewDay").addEventListener("click", createNewDay);
+    $("btnDeleteDay").addEventListener("click", () => { if (selectedDayId) deleteDay(selectedDayId); });
+    $("dayTitleInput").addEventListener("change", () => {
+      const day = days.find((d) => d.id === selectedDayId);
+      if (day) { day.title = $("dayTitleInput").value.trim() || "Senza titolo"; saveDays(); renderDaysList(); }
+    });
+    $("dayDateInput").addEventListener("change", () => {
+      const day = days.find((d) => d.id === selectedDayId);
+      if (day) { day.date = $("dayDateInput").value; saveDays(); renderDaysList(); }
+    });
+    $("btnAddVisit").addEventListener("click", () => { if (selectedDayId) openVisitModal(selectedDayId, null); });
+
+    $("visitModalClose").addEventListener("click", closeVisitModal);
+    $("visitCancelBtn").addEventListener("click", closeVisitModal);
+    $("visitForm").addEventListener("submit", handleVisitFormSubmit);
+    $("visitDeleteBtn").addEventListener("click", deleteVisitFromModal);
+
+    $("travelModalClose").addEventListener("click", closeTravelModal);
+    $("travelCancelBtn").addEventListener("click", closeTravelModal);
+    $("travelForm").addEventListener("submit", handleTravelFormSubmit);
+    $("travelDeleteBtn").addEventListener("click", deleteTravelFromModal);
+
     $("btnGoogleSignIn").addEventListener("click", signInWithGoogle);
     $("btnGoogleSignOut").addEventListener("click", () => {
       askConfirm("Disconnettersi da Google Drive? I dati resteranno salvati solo su questo dispositivo.", signOutFromGoogle);
@@ -935,9 +1307,11 @@
 
     $("searchInput").addEventListener("input", renderGrid);
     $("countryFilter").addEventListener("change", renderGrid);
+    $("cityFilter").addEventListener("change", renderGrid);
     $("statusFilter").addEventListener("change", renderGrid);
     $("btnClearFilters").addEventListener("click", () => {
       $("countryFilter").value = "";
+      $("cityFilter").value = "";
       $("statusFilter").value = "";
       activeTagFilters.clear();
       renderTagFilterList();
