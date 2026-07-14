@@ -13,6 +13,15 @@
   const MAX_TAGS_PER_PLACE = 10;
   const DEFAULT_TAG_COLORS = ["#2F6D69", "#C99A3C", "#B5502F", "#5B7FB5", "#7A6BA6", "#4E8C5A"];
 
+  // ---------- Google Drive: configurazione ----------
+  // 1. Sostituisci il valore qui sotto con il TUO Client ID (vedi README.md, sezione "Sincronizzazione con Google Drive").
+  const GOOGLE_CLIENT_ID = "INSERISCI_QUI_IL_TUO_CLIENT_ID.apps.googleusercontent.com";
+  // Scope "drive.appdata": l'app può leggere/scrivere SOLO un proprio file nascosto nel Drive
+  // dell'utente, senza mai vedere o toccare gli altri file del suo Google Drive.
+  const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+  const DRIVE_FILE_NAME = "atlante-data.json";
+  const SYNC_DEBOUNCE_MS = 1500;
+
   // ---------- Stato ----------
   let places = [];
   let tags = [];
@@ -24,6 +33,14 @@
   let confirmCallback = null;
   let lastProximityOrigin = null; // {lat, lng, label}
   let placeDistances = {}; // id -> km
+
+  // ---------- Stato: Google Drive ----------
+  let tokenClient = null;
+  let accessToken = null;
+  let driveFileId = null;
+  let syncDebounceTimer = null;
+  let isPushing = false;
+  let isPulling = false;
 
   // ---------- Gestione errori globale ----------
   // Se qualcosa va storto, lo mostriamo a schermo invece di far sembrare
@@ -47,9 +64,11 @@
 
   function savePlaces() {
     localStorage.setItem(STORAGE_PLACES, JSON.stringify(places));
+    scheduleCloudPush();
   }
   function saveTags() {
     localStorage.setItem(STORAGE_TAGS, JSON.stringify(tags));
+    scheduleCloudPush();
   }
   function loadData() {
     try { places = JSON.parse(localStorage.getItem(STORAGE_PLACES)) || []; } catch (e) { places = []; }
@@ -570,9 +589,11 @@
   }
 
   // ---------- Conferma generica ----------
-  function askConfirm(message, onConfirm) {
+  let confirmCancelCallback = null;
+  function askConfirm(message, onConfirm, onCancel) {
     $("confirmMessage").textContent = message;
     confirmCallback = onConfirm;
+    confirmCancelCallback = onCancel || null;
     $("confirmModalOverlay").classList.remove("hidden");
   }
 
@@ -625,6 +646,213 @@
     reader.readAsDataURL(file);
   }
 
+  // ---------- Google Drive: autenticazione ----------
+  function isClientIdConfigured() {
+    return GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.startsWith("INSERISCI_QUI");
+  }
+
+  function setSyncUI(state, text) {
+    // state: 'signed-out' | 'ok' | 'syncing' | 'error'
+    const signInBtn = $("btnGoogleSignIn");
+    const statusWrap = $("syncStatusWrap");
+    const dot = $("syncDot");
+    const txt = $("syncText");
+    if (state === "signed-out") {
+      signInBtn.classList.remove("hidden");
+      statusWrap.classList.add("hidden");
+      return;
+    }
+    signInBtn.classList.add("hidden");
+    statusWrap.classList.remove("hidden");
+    dot.className = "sync-dot" + (state === "syncing" ? " syncing" : state === "error" ? " error" : "");
+    txt.textContent = text || (state === "syncing" ? "Sincronizzazione…" : state === "error" ? "Errore di sync" : "Sincronizzato con Drive");
+  }
+
+  function initGoogleAuth() {
+    if (!isClientIdConfigured()) {
+      $("btnGoogleSignIn").title = "Devi prima configurare GOOGLE_CLIENT_ID in script.js — vedi README.md";
+      return;
+    }
+    if (!window.google || !google.accounts || !google.accounts.oauth2) {
+      // Lo script di Google potrebbe non essere ancora pronto: riprova tra poco.
+      setTimeout(initGoogleAuth, 400);
+      return;
+    }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: DRIVE_SCOPE,
+      callback: handleTokenResponse,
+      error_callback: (err) => {
+        console.error("Errore di autenticazione Google:", err);
+        showToast("Accesso a Google annullato o non riuscito.");
+      },
+    });
+    // Prova un accesso "silenzioso": se l'utente ha già autorizzato l'app in
+    // precedenza ed è ancora loggato in Google in questo browser, evitiamo
+    // di chiedergli di nuovo il consenso ad ogni apertura della pagina.
+    tokenClient.requestAccessToken({ prompt: "none" });
+  }
+
+  function handleTokenResponse(resp) {
+    if (!resp || resp.error) {
+      // Login silenzioso non disponibile: mostriamo semplicemente il pulsante di accesso.
+      setSyncUI("signed-out");
+      return;
+    }
+    accessToken = resp.access_token;
+    setSyncUI("syncing", "Connessione a Drive…");
+    connectToDrive();
+  }
+
+  function signInWithGoogle() {
+    if (!isClientIdConfigured()) {
+      showToast("Sincronizzazione non ancora configurata: apri il README per i passaggi su Google Cloud.");
+      return;
+    }
+    if (!tokenClient) { showToast("Google non è ancora pronto, riprova tra un secondo."); return; }
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  }
+
+  function signOutFromGoogle() {
+    if (accessToken && window.google && google.accounts && google.accounts.oauth2) {
+      google.accounts.oauth2.revoke(accessToken, () => {});
+    }
+    accessToken = null;
+    driveFileId = null;
+    clearTimeout(syncDebounceTimer);
+    setSyncUI("signed-out");
+    showToast("Disconnesso da Google Drive. I dati restano salvati solo su questo dispositivo.");
+  }
+
+  // ---------- Google Drive: lettura/scrittura file ----------
+  function driveHeaders(extra) {
+    return Object.assign({ Authorization: "Bearer " + accessToken }, extra || {});
+  }
+
+  async function driveFindFile() {
+    const url =
+      "https://www.googleapis.com/drive/v3/files" +
+      "?spaces=appDataFolder&fields=files(id,modifiedTime)&q=" +
+      encodeURIComponent(`name='${DRIVE_FILE_NAME}'`);
+    const res = await fetch(url, { headers: driveHeaders() });
+    if (!res.ok) throw new Error("Impossibile leggere Google Drive (HTTP " + res.status + ")");
+    const data = await res.json();
+    return data.files && data.files.length ? data.files[0] : null;
+  }
+
+  async function driveDownloadFile(fileId) {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: driveHeaders(),
+    });
+    if (!res.ok) throw new Error("Impossibile scaricare i dati da Drive (HTTP " + res.status + ")");
+    return res.json();
+  }
+
+  async function driveCreateFile(payload) {
+    const boundary = "atlante-boundary";
+    const metadata = { name: DRIVE_FILE_NAME, parents: ["appDataFolder"] };
+    const body =
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n` +
+      `--${boundary}--`;
+    const res = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
+      method: "POST",
+      headers: driveHeaders({ "Content-Type": `multipart/related; boundary=${boundary}` }),
+      body,
+    });
+    if (!res.ok) throw new Error("Impossibile creare il file su Drive (HTTP " + res.status + ")");
+    const data = await res.json();
+    return data.id;
+  }
+
+  async function driveUpdateFile(fileId, payload) {
+    const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+      method: "PATCH",
+      headers: driveHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Impossibile aggiornare il file su Drive (HTTP " + res.status + ")");
+  }
+
+  async function connectToDrive() {
+    try {
+      const existing = await driveFindFile();
+      if (!existing) {
+        // Prima connessione: creiamo il file cloud a partire dai dati locali attuali.
+        driveFileId = await driveCreateFile({ places, tags, updatedAt: new Date().toISOString() });
+        setSyncUI("ok", "Backup su Drive creato");
+        showToast("I tuoi dati locali sono stati caricati su Google Drive.");
+        return;
+      }
+      driveFileId = existing.id;
+      const hasLocalData = places.length > 0 || tags.length > 0;
+      if (!hasLocalData) {
+        // Nessun dato locale: scarichiamo direttamente quello che c'è nel cloud.
+        await pullFromDrive();
+        setSyncUI("ok");
+        return;
+      }
+      // Ci sono sia dati locali sia dati cloud: chiediamo all'utente quali tenere,
+      // per evitare di perdere in silenzio uno dei due set di dati.
+      setSyncUI("ok", "In attesa della tua scelta…");
+      askConfirm(
+        "Ho trovato sia dati salvati su questo dispositivo sia dati già presenti su Google Drive.\n\n" +
+        "Conferma = usa i dati di Google Drive (sovrascrive quelli locali).\n" +
+        "Annulla = mantieni i dati di questo dispositivo e li carico su Drive (sovrascrive quelli cloud).",
+        async () => {
+          await pullFromDrive();
+          setSyncUI("ok");
+        },
+        async () => {
+          await pushToDrive();
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      setSyncUI("error", "Errore di connessione a Drive");
+      showToast("Non sono riuscito a collegarmi a Google Drive: " + err.message);
+    }
+  }
+
+  async function pullFromDrive() {
+    if (!driveFileId) return;
+    isPulling = true;
+    const data = await driveDownloadFile(driveFileId);
+    places = Array.isArray(data.places) ? data.places : [];
+    tags = Array.isArray(data.tags) ? data.tags : [];
+    savePlaces();
+    saveTags();
+    isPulling = false;
+    renderAll();
+    showToast("Dati scaricati da Google Drive.");
+  }
+
+  async function pushToDrive() {
+    if (!accessToken) return;
+    try {
+      isPushing = true;
+      setSyncUI("syncing");
+      if (!driveFileId) {
+        driveFileId = await driveCreateFile({ places, tags, updatedAt: new Date().toISOString() });
+      } else {
+        await driveUpdateFile(driveFileId, { places, tags, updatedAt: new Date().toISOString() });
+      }
+      setSyncUI("ok", "Sincronizzato con Drive");
+    } catch (err) {
+      console.error(err);
+      setSyncUI("error", "Errore di sync — riprovo al prossimo salvataggio");
+    } finally {
+      isPushing = false;
+    }
+  }
+
+  function scheduleCloudPush() {
+    if (!accessToken || isPulling) return; // non collegati a Drive, o dati appena scaricati: niente push
+    clearTimeout(syncDebounceTimer);
+    setSyncUI("syncing");
+    syncDebounceTimer = setTimeout(pushToDrive, SYNC_DEBOUNCE_MS);
+  }
+
   // ---------- Render globale ----------
   function renderAll() {
     renderCountryFilterOptions();
@@ -635,6 +863,11 @@
 
   // ---------- Event bindings ----------
   function bindEvents() {
+    $("btnGoogleSignIn").addEventListener("click", signInWithGoogle);
+    $("btnGoogleSignOut").addEventListener("click", () => {
+      askConfirm("Disconnettersi da Google Drive? I dati resteranno salvati solo su questo dispositivo.", signOutFromGoogle);
+    });
+
     $("btnNewPlace").addEventListener("click", () => openPlaceModal(null));
     $("placeModalClose").addEventListener("click", closePlaceModal);
     $("placeCancelBtn").addEventListener("click", closePlaceModal);
@@ -681,11 +914,18 @@
       });
     });
 
-    $("confirmCancelBtn").addEventListener("click", () => { $("confirmModalOverlay").classList.add("hidden"); confirmCallback = null; });
+    $("confirmCancelBtn").addEventListener("click", () => {
+      $("confirmModalOverlay").classList.add("hidden");
+      const cancelFn = confirmCancelCallback;
+      confirmCallback = null;
+      confirmCancelCallback = null;
+      if (cancelFn) cancelFn();
+    });
     $("confirmOkBtn").addEventListener("click", () => {
       $("confirmModalOverlay").classList.add("hidden");
       if (confirmCallback) confirmCallback();
       confirmCallback = null;
+      confirmCancelCallback = null;
     });
 
     // Chiudi modali cliccando sull'overlay
@@ -734,6 +974,8 @@
       purgeExpiredTrash();
       bindEvents();
       renderAll();
+      setSyncUI("signed-out");
+      initGoogleAuth();
     } catch (err) {
       console.error("Errore durante l'avvio dell'app:", err);
       showToast("Errore all'avvio: apri la console del browser (F12) per i dettagli.");
