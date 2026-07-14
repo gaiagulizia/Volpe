@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -20,6 +21,14 @@
     </div>
   </div>
   <div class="topbar-actions">
+    <div class="sync-area" id="syncArea">
+      <button class="btn btn-outline" id="btnGoogleSignIn" type="button">🔒 Accedi con Google</button>
+      <div class="sync-status hidden" id="syncStatusWrap">
+        <span class="sync-dot" id="syncDot" title="Stato sincronizzazione"></span>
+        <span class="sync-text" id="syncText">Sincronizzato</span>
+        <button class="btn btn-text" id="btnGoogleSignOut" type="button">Disconnetti</button>
+      </div>
+    </div>
     <button class="btn btn-ghost" id="btnTags" type="button">Gestisci tag</button>
     <button class="btn btn-ghost" id="btnTrash" type="button">Cestino <span class="badge" id="trashCount">0</span></button>
     <button class="btn btn-primary" id="btnNewPlace" type="button">+ Nuovo luogo</button>
@@ -222,5 +231,4 @@
 
 <script src="script.js"></script>
 </body>
-          </html>
-          
+</html>
