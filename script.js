@@ -510,7 +510,7 @@
       <a class="maps-link" target="_blank" rel="noopener" href="${googleMapsUrl(p)}">📍 Apri in Google Maps</a>
       <div class="detail-actions">
         <button class="btn btn-outline" id="detailEditBtn">Modifica</button>
-        <button class="btn btn-danger-outline" id="detailDeleteBtn">Sposta nel cestino</button>
+        <button class="btn btn-danger-outline" id="detailDeleteBtn">Elimina</button>
       </div>
     `;
     $("detailEditBtn").addEventListener("click", () => {
