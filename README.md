@@ -20,13 +20,16 @@ Tutto è salvato nel `localStorage` del browser che usi, quindi:
 
 ## Funzioni incluse
 
-- **Luoghi**: nome, indirizzo/coordinate e nazione obbligatori; descrizione, foto di copertina (URL o upload), orari, prezzo e stato (visitato / da visitare) facoltativi.
+- **Luoghi**: nome, indirizzo/coordinate e nazione obbligatori; città, descrizione, foto di copertina (URL o upload), orari, prezzo e stato (visitato / da visitare) facoltativi.
 - **Google Maps**: ogni scheda luogo ha un link diretto alla posizione (usa le coordinate se le hai inserite come "lat, lng", altrimenti l'indirizzo testuale).
 - **Tag**: fino a 10 per luogo, creabili/modificabili/eliminabili da "Gestisci tag".
-- **Cestino**: gli elementi eliminati restano recuperabili per 60 giorni, poi vengono rimossi automaticamente; puoi anche svuotarlo manualmente o ripristinare singoli elementi.
-- **Ricerca**: su nome, descrizione, nazione e tag.
+- **Cestino**: gli elementi eliminati restano recuperabili per 60 giorni, poi vengono rimossi automaticamente; puoi ripristinare/eliminare singoli elementi oppure selezionarne più di uno contemporaneamente (checkbox + "Ripristina selezionati" / "Elimina selezionati"), o svuotarlo del tutto.
+- **Selezione multipla**: il pulsante "Seleziona" nella schermata Luoghi permette di scegliere più luoghi insieme e, dalla barra che compare, aggiungere/rimuovere tag in blocco oppure spostarli tutti nel cestino in un colpo solo.
+- **Testo multi-riga**: gli a-capo scritti nelle descrizioni dei luoghi e nelle note delle visite vengono mantenuti e mostrati esattamente come li hai scritti.
+- **Ricerca**: su nome, descrizione, città, nazione e tag.
 - **Ordinamento**: alfabetico, data di aggiunta (più recenti/meno recenti), vicinanza a un indirizzo o luogo scritto a mano (geocodifica tramite OpenStreetMap Nominatim, gratuita).
-- **Filtri**: per nazione e per uno o più tag contemporaneamente.
+- **Filtri**: per nazione, per città e per uno o più tag contemporaneamente.
+- **Itinerario** (seconda schermata, tab "🗓️ Itinerario"): crea giornate di viaggio, ognuna con la propria linea del tempo verticale. Per ogni giornata puoi aggiungere visite scegliendo un luogo dal database, un orario (00:00–23:59) e note facoltative; fra una visita e la successiva puoi aggiungere un collegamento "Viaggio" con titolo obbligatorio e descrizione facoltativa (es. il mezzo di trasporto usato). Le visite si riordinano automaticamente per orario.
 
 ## Sincronizzazione con Google Drive
 
@@ -42,7 +45,9 @@ L'app ora può accedere con Google e salvare i tuoi luoghi in un file privato e 
    - Nella sezione **Utenti di test**, aggiungi il tuo indirizzo Gmail (quello con cui userai l'app). Finché l'app resta in modalità "Testing" (va bene per uso personale) potrà autenticarsi solo chi è nella lista utenti di test.
 4. Vai su **API e servizi → Credenziali → Crea credenziali → ID client OAuth**:
    - Tipo applicazione: **Applicazione web**.
-   - In **Origini JavaScript autorizzate**, aggiungi l'indirizzo dove pubblicherai l'app, ad esempio `https://<tuo-utente>.github.io` (senza percorso finale). Se vuoi testarla anche in locale, aggiungi anche `http://localhost:5500` o simili a seconda di come la apri.
+   - In **Origini JavaScript autorizzate**, aggiungi **solo** schema + dominio, senza percorso e senza slash finale: `https://<tuo-utente>.github.io`.
+     ⚠️ Attenzione se il tuo sito è un *project site* di GitHub Pages (indirizzo tipo `https://<tuo-utente>.github.io/<nome-repo>/`): l'origine da autorizzare resta comunque `https://<tuo-utente>.github.io`, **senza** `/<nome-repo>`. Google rifiuta qualunque origine con un percorso o uno slash finale — l'origine autorizzata copre comunque tutte le pagine su quel dominio, indipendentemente dal percorso.
+     Se vuoi testarla anche in locale, aggiungi anche `http://localhost:5500` o simili a seconda di come la apri.
    - Salva: otterrai un **Client ID** del tipo `123456789-abcdefg.apps.googleusercontent.com`.
 
 ### 2. Incolla il Client ID nel codice
