@@ -32,6 +32,9 @@
   let currentStatusInForm = "to_visit";
   let coverDataInForm = { type: null, value: null }; // type: 'url' | 'upload'
   let activeTagFilters = new Set();
+  let selectionMode = false;
+  let selectedPlaceIds = new Set();
+  let trashSelectionIds = new Set();
   let editingPlaceId = null;
   let confirmCallback = null;
   let lastProximityOrigin = null; // {lat, lng, label}
@@ -283,8 +286,13 @@
         const distHtml = $("sortSelect").value === "proximity" && dist != null
           ? `<div class="card-distance">≈ ${dist < 1 ? Math.round(dist * 1000) + " m" : dist.toFixed(1) + " km"} da ${escapeHtml(lastProximityOrigin.label)}</div>`
           : "";
+        const isSelected = selectedPlaceIds.has(p.id);
+        const selectBox = selectionMode
+          ? `<div class="card-select-box ${isSelected ? "checked" : ""}" data-role="select-box">${isSelected ? "✓" : ""}</div>`
+          : "";
         return `
-        <article class="place-card" data-id="${p.id}">
+        <article class="place-card ${selectionMode ? "selectable" : ""} ${isSelected ? "selected" : ""}" data-id="${p.id}">
+          ${selectBox}
           <div style="position:relative;">
             ${cover}
             <span class="stamp ${p.status}">${statusLabel}</span>
@@ -301,7 +309,10 @@
       .join("");
 
     grid.querySelectorAll(".place-card").forEach((card) => {
-      card.addEventListener("click", () => openDetail(card.dataset.id));
+      card.addEventListener("click", () => {
+        if (selectionMode) togglePlaceSelection(card.dataset.id);
+        else openDetail(card.dataset.id);
+      });
     });
 
     grid.querySelectorAll("[data-cover-img]").forEach((img) => {
@@ -316,10 +327,114 @@
         { once: true }
       );
     });
+
+    grid.querySelectorAll("[data-role=select-box]").forEach((box) => {
+      box.addEventListener("click", (e) => {
+        e.stopPropagation();
+        togglePlaceSelection(box.closest(".place-card").dataset.id);
+      });
+    });
+
+    updateBulkBar();
   }
 
   function truncate(str, n) {
     return str.length > n ? str.slice(0, n).trim() + "…" : str;
+  }
+
+  // ---------- Selezione multipla dei luoghi ----------
+  function toggleSelectionMode() {
+    selectionMode = !selectionMode;
+    if (!selectionMode) selectedPlaceIds.clear();
+    $("btnToggleSelect").textContent = selectionMode ? "Annulla selezione" : "Seleziona";
+    $("btnToggleSelect").classList.toggle("active-toggle", selectionMode);
+    renderGrid();
+  }
+
+  function togglePlaceSelection(id) {
+    if (selectedPlaceIds.has(id)) selectedPlaceIds.delete(id);
+    else selectedPlaceIds.add(id);
+    renderGrid();
+  }
+
+  function updateBulkBar() {
+    const bar = $("bulkBar");
+    const count = selectedPlaceIds.size;
+    if (!selectionMode || count === 0) {
+      bar.classList.add("hidden");
+      return;
+    }
+    bar.classList.remove("hidden");
+    $("bulkCount").textContent = `${count} luog${count === 1 ? "o selezionato" : "hi selezionati"}`;
+  }
+
+  function bulkMoveToTrash() {
+    const ids = [...selectedPlaceIds];
+    if (!ids.length) return;
+    askConfirm(`Spostare ${ids.length} luoghi nel cestino?`, () => {
+      const now = new Date().toISOString();
+      places.forEach((p) => { if (ids.includes(p.id)) p.deletedAt = now; });
+      savePlaces();
+      selectedPlaceIds.clear();
+      renderAll();
+      showToast(`${ids.length} luoghi spostati nel cestino.`);
+    });
+  }
+
+  function openBulkTagModal() {
+    if (!selectedPlaceIds.size) return;
+    const wrap = $("bulkTagPicker");
+    $("bulkTagHint").textContent = tags.length
+      ? 'Seleziona uno o più tag, poi scegli se aggiungerli o rimuoverli da tutti i luoghi selezionati.'
+      : 'Non hai ancora creato nessun tag. Usa "Gestisci tag" nella schermata principale per crearne.';
+    wrap.innerHTML = tags
+      .map((t) => `<button type="button" class="tag-pill-toggle" data-tag-id="${t.id}">${escapeHtml(t.name)}</button>`)
+      .join("");
+    wrap.querySelectorAll("[data-tag-id]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const active = btn.classList.toggle("active");
+        const t = tagById(btn.dataset.tagId);
+        if (active && t) { btn.style.background = t.color; btn.style.borderColor = t.color; }
+        else { btn.style.background = ""; btn.style.borderColor = ""; }
+      });
+    });
+    $("bulkTagModalOverlay").classList.remove("hidden");
+  }
+
+  function getBulkTagSelection() {
+    return [...document.querySelectorAll("#bulkTagPicker [data-tag-id].active")].map((b) => b.dataset.tagId);
+  }
+
+  function applyBulkTagAdd() {
+    const tagIds = getBulkTagSelection();
+    if (!tagIds.length) { showToast("Seleziona almeno un tag."); return; }
+    let skipped = 0;
+    places.forEach((p) => {
+      if (!selectedPlaceIds.has(p.id)) return;
+      p.tags = p.tags || [];
+      tagIds.forEach((tid) => {
+        if (p.tags.includes(tid)) return;
+        if (p.tags.length >= MAX_TAGS_PER_PLACE) { skipped++; return; }
+        p.tags.push(tid);
+      });
+    });
+    savePlaces();
+    $("bulkTagModalOverlay").classList.add("hidden");
+    renderAll();
+    showToast(skipped ? `Tag aggiunti. Alcuni luoghi avevano già ${MAX_TAGS_PER_PLACE} tag e sono stati saltati.` : "Tag aggiunti ai luoghi selezionati.");
+  }
+
+  function applyBulkTagRemove() {
+    const tagIds = getBulkTagSelection();
+    if (!tagIds.length) { showToast("Seleziona almeno un tag."); return; }
+    places.forEach((p) => {
+      if (!selectedPlaceIds.has(p.id)) return;
+      p.tags = (p.tags || []).filter((tid) => !tagIds.includes(tid));
+    });
+    savePlaces();
+    $("bulkTagModalOverlay").classList.add("hidden");
+    renderAll();
+    showToast("Tag rimossi dai luoghi selezionati.");
   }
 
   // ---------- Cestino ----------
@@ -330,6 +445,7 @@
   function renderTrash() {
     const list = places.filter((p) => p.deletedAt).sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
     const ul = $("trashList");
+    trashSelectionIds = new Set([...trashSelectionIds].filter((id) => list.some((p) => p.id === id)));
     if (!list.length) {
       ul.innerHTML = '<p class="field-hint">Il cestino è vuoto.</p>';
       return;
@@ -341,8 +457,10 @@
         const thumb = p.coverPhoto
           ? `<img class="trash-thumb" src="${escapeHtml(p.coverPhoto)}" alt="">`
           : `<div class="trash-thumb"></div>`;
+        const checked = trashSelectionIds.has(p.id);
         return `
         <li class="trash-item" data-id="${p.id}">
+          <div class="trash-select-box ${checked ? "checked" : ""}" data-role="trash-select">${checked ? "✓" : ""}</div>
           ${thumb}
           <div class="trash-info">
             <div class="name">${escapeHtml(p.name)}</div>
@@ -356,6 +474,14 @@
       })
       .join("");
 
+    ul.querySelectorAll("[data-role=trash-select]").forEach((box) =>
+      box.addEventListener("click", (e) => {
+        const id = e.target.closest(".trash-item").dataset.id;
+        if (trashSelectionIds.has(id)) trashSelectionIds.delete(id);
+        else trashSelectionIds.add(id);
+        renderTrash();
+      })
+    );
     ul.querySelectorAll("[data-action=restore]").forEach((btn) =>
       btn.addEventListener("click", (e) => {
         const id = e.target.closest(".trash-item").dataset.id;
@@ -379,6 +505,37 @@
         });
       })
     );
+  }
+
+  function trashSelectAll() {
+    const list = places.filter((p) => p.deletedAt);
+    if (trashSelectionIds.size === list.length) trashSelectionIds.clear();
+    else trashSelectionIds = new Set(list.map((p) => p.id));
+    renderTrash();
+  }
+
+  function trashRestoreSelected() {
+    if (!trashSelectionIds.size) { showToast("Seleziona almeno un elemento del cestino."); return; }
+    const ids = [...trashSelectionIds];
+    places.forEach((p) => { if (ids.includes(p.id)) p.deletedAt = null; });
+    savePlaces();
+    trashSelectionIds.clear();
+    renderTrash();
+    renderAll();
+    showToast(`${ids.length} luoghi ripristinati.`);
+  }
+
+  function trashDeleteSelected() {
+    if (!trashSelectionIds.size) { showToast("Seleziona almeno un elemento del cestino."); return; }
+    const ids = [...trashSelectionIds];
+    askConfirm(`Eliminare definitivamente ${ids.length} luoghi? L'azione non è reversibile.`, () => {
+      places = places.filter((p) => !ids.includes(p.id));
+      savePlaces();
+      trashSelectionIds.clear();
+      renderTrash();
+      renderAll();
+      showToast(`${ids.length} luoghi eliminati definitivamente.`);
+    });
   }
 
   // ---------- Modale: Nuovo / Modifica luogo ----------
@@ -1013,8 +1170,10 @@
 
       html += `
         <div class="timeline-row visit-row ${isFirst ? "is-first" : ""} ${isLast ? "is-last" : ""}" data-visit-id="${v.id}">
-          <div class="timeline-time" data-role="edit-time" data-visit-id="${v.id}">${escapeHtml(v.time)}</div>
-          <div class="spine-col"><span class="timeline-dot"></span></div>
+          <div class="spine-col">
+            <button type="button" class="timeline-time-btn" data-role="edit-time" data-visit-id="${v.id}">${escapeHtml(v.time)}</button>
+          </div>
+          <div class="connector-col"></div>
           ${placeHtml}
           ${noteHtml}
         </div>`;
@@ -1022,8 +1181,8 @@
       if (!isLast) {
         html += v.travelAfter
           ? `<div class="timeline-row travel-row" data-visit-id="${v.id}">
-               <div></div>
-               <div class="spine-col travel-arrow-col"><span class="arrow-tip"></span></div>
+               <div class="spine-col"></div>
+               <div class="connector-col travel-arrow-col"><span class="arrow-tip"></span></div>
                <div class="travel-box" data-role="edit-travel" data-visit-id="${v.id}">
                  <div>
                    <div class="travel-box-title">🧭 ${escapeHtml(v.travelAfter.title)}</div>
@@ -1032,8 +1191,8 @@
                </div>
              </div>`
           : `<div class="timeline-row travel-row" data-visit-id="${v.id}">
-               <div></div>
-               <div class="spine-col travel-arrow-col"><span class="arrow-tip"></span></div>
+               <div class="spine-col"></div>
+               <div class="connector-col travel-arrow-col"><span class="arrow-tip"></span></div>
                <button type="button" class="travel-add-btn" data-role="add-travel" data-visit-id="${v.id}">+ Aggiungi viaggio</button>
              </div>`;
       }
@@ -1280,11 +1439,23 @@
       askConfirm("Svuotare definitivamente il cestino? L'azione non è reversibile.", () => {
         places = places.filter((p) => !p.deletedAt);
         savePlaces();
+        trashSelectionIds.clear();
         renderTrash();
         renderAll();
         showToast("Cestino svuotato.");
       });
     });
+    $("btnTrashSelectAll").addEventListener("click", trashSelectAll);
+    $("btnTrashRestoreSelected").addEventListener("click", trashRestoreSelected);
+    $("btnTrashDeleteSelected").addEventListener("click", trashDeleteSelected);
+
+    $("btnToggleSelect").addEventListener("click", toggleSelectionMode);
+    $("btnBulkClear").addEventListener("click", () => { selectedPlaceIds.clear(); renderGrid(); });
+    $("btnBulkTrash").addEventListener("click", bulkMoveToTrash);
+    $("btnBulkTag").addEventListener("click", openBulkTagModal);
+    $("bulkTagModalClose").addEventListener("click", () => $("bulkTagModalOverlay").classList.add("hidden"));
+    $("btnBulkTagAdd").addEventListener("click", applyBulkTagAdd);
+    $("btnBulkTagRemove").addEventListener("click", applyBulkTagRemove);
 
     $("confirmCancelBtn").addEventListener("click", () => {
       $("confirmModalOverlay").classList.add("hidden");
