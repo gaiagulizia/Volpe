@@ -52,6 +52,7 @@
     </select>
 
     <button class="btn btn-outline" id="btnToggleFilters" type="button">Filtri</button>
+    <button class="btn btn-outline" id="btnToggleSelect" type="button">Seleziona</button>
   </div>
 
   <div class="proximity-row hidden" id="proximityRow">
@@ -92,6 +93,14 @@
 
 <main id="placesMain">
   <div class="results-info" id="resultsInfo"></div>
+  <div class="bulk-bar hidden" id="bulkBar">
+    <span class="bulk-count" id="bulkCount">0 selezionati</span>
+    <div class="bulk-actions">
+      <button class="btn btn-small btn-outline" id="btnBulkTag" type="button">🏷 Gestisci tag</button>
+      <button class="btn btn-small btn-danger-outline" id="btnBulkTrash" type="button">Sposta nel cestino</button>
+      <button class="btn btn-small btn-text" id="btnBulkClear" type="button">Annulla selezione</button>
+    </div>
+  </div>
   <div class="grid" id="placesGrid"></div>
   <div class="empty-state hidden" id="emptyState">
     <p class="empty-title">Nessun luogo trovato</p>
@@ -254,6 +263,9 @@
     <div class="modal-body">
       <p class="field-hint">Gli elementi nel cestino vengono eliminati automaticamente dopo 60 giorni. Puoi ripristinarli o svuotare il cestino in qualsiasi momento.</p>
       <div class="trash-toolbar">
+        <button class="btn btn-small btn-outline" id="btnTrashSelectAll" type="button">Seleziona tutto</button>
+        <button class="btn btn-small btn-outline" id="btnTrashRestoreSelected" type="button">Ripristina selezionati</button>
+        <button class="btn btn-small btn-danger" id="btnTrashDeleteSelected" type="button">Elimina selezionati</button>
         <button class="btn btn-danger-outline" id="btnEmptyTrash" type="button">Svuota cestino</button>
       </div>
       <ul class="trash-list" id="trashList"></ul>
@@ -269,6 +281,24 @@
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" id="confirmCancelBtn">Annulla</button>
         <button type="button" class="btn btn-danger" id="confirmOkBtn">Conferma</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MODAL: Tag in blocco ===== -->
+<div class="modal-overlay hidden" id="bulkTagModalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Gestisci tag sui luoghi selezionati</h2>
+      <button class="modal-close" id="bulkTagModalClose" type="button">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="field-hint" id="bulkTagHint"></p>
+      <div class="tag-picker" id="bulkTagPicker"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger-outline" id="btnBulkTagRemove">Rimuovi selezionati dai luoghi</button>
+        <button type="button" class="btn btn-primary" id="btnBulkTagAdd">Aggiungi selezionati ai luoghi</button>
       </div>
     </div>
   </div>
