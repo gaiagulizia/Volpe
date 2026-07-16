@@ -20,7 +20,7 @@ Tutto è salvato nel `localStorage` del browser che usi, quindi:
 
 ## Funzioni incluse
 
-- **Luoghi**: nome, indirizzo/coordinate e nazione obbligatori; città, descrizione, foto di copertina (URL o upload), orari, prezzo e stato (visitato / da visitare) facoltativi.
+- **Luoghi**: nome, indirizzo e nazione obbligatori; città, coordinate GPS, descrizione, foto di copertina (URL o upload), orari, prezzo e stato (visitato / da visitare) facoltativi.
 - **Google Maps**: ogni scheda luogo ha un link diretto alla posizione (usa le coordinate se le hai inserite come "lat, lng", altrimenti l'indirizzo testuale).
 - **Tag**: fino a 10 per luogo, creabili/modificabili/eliminabili da "Gestisci tag".
 - **Cestino**: gli elementi eliminati restano recuperabili per 60 giorni, poi vengono rimossi automaticamente; puoi ripristinare/eliminare singoli elementi oppure selezionarne più di uno contemporaneamente (checkbox + "Ripristina selezionati" / "Elimina selezionati"), o svuotarlo del tutto.
@@ -30,6 +30,7 @@ Tutto è salvato nel `localStorage` del browser che usi, quindi:
 - **Ordinamento**: alfabetico, data di aggiunta (più recenti/meno recenti), vicinanza a un indirizzo o luogo scritto a mano (geocodifica tramite OpenStreetMap Nominatim, gratuita).
 - **Filtri**: per nazione, per città e per uno o più tag contemporaneamente.
 - **Itinerario** (seconda schermata, tab "🗓️ Itinerario"): crea giornate di viaggio, ognuna con la propria linea del tempo verticale. Per ogni giornata puoi aggiungere visite scegliendo un luogo dal database, un orario (00:00–23:59) e note facoltative; fra una visita e la successiva puoi aggiungere un collegamento "Viaggio" con titolo obbligatorio e descrizione facoltativa (es. il mezzo di trasporto usato). Le visite si riordinano automaticamente per orario.
+- **Mappa** (terza schermata, tab "🗺️ Mappa"): mostra su una mappa (OpenStreetMap, gratuita, nessuna chiave richiesta) tutti i luoghi con coordinate valide, oppure solo quelli che rispettano ricerca/filtri — usa esattamente gli stessi controlli (ricerca, nazione, città, stato, tag) della schermata Luoghi, in modo indipendente. I marker sono colorati in base allo stato (visitato/da visitare) e cliccandoli si apre un'anteprima con foto, nome e due link rapidi: aprire la scheda completa o Google Maps. I luoghi senza coordinate (solo indirizzo testuale) non compaiono sulla mappa: te lo segnala un avviso, con l'indicazione di come aggiungerle.
 
 ## Sincronizzazione con Google Drive
 
@@ -79,5 +80,5 @@ Sostituisci il valore con il tuo Client ID reale, salva e ricarica la pagina (o 
 ## Note tecniche
 
 - Il geocoding (per indirizzo/vicinanza) usa l'API pubblica e gratuita di [Nominatim/OpenStreetMap](https://nominatim.org/), quindi richiede una connessione internet attiva; è pensato per un uso personale/moderato.
-- Le coordinate si inseriscono nel campo "Indirizzo o coordinate" nel formato `lat, lng` (es. `45.4642, 9.1900`); altrimenti puoi scrivere un indirizzo normale.
+- Le coordinate GPS si inseriscono nell'apposito campo facoltativo "Coordinate GPS" nel formato `lat, lng` (es. `45.4642, 9.1900`); il campo "Indirizzo" resta invece un normale indirizzo testuale. Se un luogo ha le coordinate, vengono usate al posto dell'indirizzo per il link a Google Maps, per posizionarlo sulla Mappa e per il calcolo delle distanze; altrimenti, dove serve (Google Maps, calcolo distanze), l'app usa l'indirizzo testuale.
 - Le foto caricate da file vengono salvate come immagine incorporata (base64) dentro al browser: per molte foto ad alta risoluzione è meglio preferire l'opzione URL, perché lo spazio di `localStorage` è limitato (circa 5-10 MB totali).
