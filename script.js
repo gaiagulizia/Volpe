@@ -16,7 +16,7 @@
 
   // ---------- Google Drive: configurazione ----------
   // 1. Sostituisci il valore qui sotto con il TUO Client ID (vedi README.md, sezione "Sincronizzazione con Google Drive").
-  const GOOGLE_CLIENT_ID = "361800686303-o2l9or0ear8hr052paean09tb9h0h6ti.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_ID = "INSERISCI_QUI_IL_TUO_CLIENT_ID.apps.googleusercontent.com";
   // Scope "drive.appdata": l'app può leggere/scrivere SOLO un proprio file nascosto nel Drive
   // dell'utente, senza mai vedere o toccare gli altri file del suo Google Drive.
   const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
@@ -85,6 +85,23 @@
     try { places = JSON.parse(localStorage.getItem(STORAGE_PLACES)) || []; } catch (e) { places = []; }
     try { tags = JSON.parse(localStorage.getItem(STORAGE_TAGS)) || []; } catch (e) { tags = []; }
     try { days = JSON.parse(localStorage.getItem(STORAGE_DAYS)) || []; } catch (e) { days = []; }
+    normalizeDays();
+  }
+
+  // Adegua i dati salvati in versioni precedenti dell'app al formato attuale:
+  // - il vecchio "travelAfter" (un solo viaggio) diventa "travelSegments" (un elenco di viaggi/tappe);
+  // - ogni visita ha ora un campo "price" facoltativo.
+  function normalizeDays() {
+    days.forEach((day) => {
+      (day.visits || []).forEach((v) => {
+        if (v.price === undefined) v.price = null;
+        if (!Array.isArray(v.travelSegments)) {
+          v.travelSegments = v.travelAfter ? [{ id: uid(), title: v.travelAfter.title, description: v.travelAfter.description || "", price: null }] : [];
+        }
+        delete v.travelAfter;
+        v.travelSegments.forEach((seg) => { if (seg.price === undefined) seg.price = null; });
+      });
+    });
   }
 
   function purgeExpiredTrash() {
@@ -172,6 +189,7 @@
   function renderTagFilterList(listId, filterSet, onChange) {
     const wrap = $(listId || "tagFilterList");
     const set = filterSet || activeTagFilters;
+    const applyChange = onChange || renderGrid;
     if (!tags.length) {
       wrap.innerHTML = '<span class="field-hint">Nessun tag creato.</span>';
       return;
@@ -188,7 +206,7 @@
         if (set.has(id)) set.delete(id);
         else set.add(id);
         renderTagFilterList(listId, set, onChange);
-        if (onChange) onChange();
+        applyChange();
       });
     });
   }
@@ -1030,6 +1048,7 @@
     places = Array.isArray(data.places) ? data.places : [];
     tags = Array.isArray(data.tags) ? data.tags : [];
     days = Array.isArray(data.days) ? data.days : [];
+    normalizeDays();
     savePlaces();
     saveTags();
     saveDays();
@@ -1265,6 +1284,10 @@
     return [...day.visits].sort((a, b) => a.time.localeCompare(b.time));
   }
 
+  function formatEuro(n) {
+    return "€ " + Number(n).toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
   function renderTimeline(day) {
     const container = $("timelineContainer");
     const emptyEl = $("timelineEmpty");
@@ -1273,6 +1296,7 @@
     if (!visits.length) {
       container.innerHTML = "";
       emptyEl.classList.remove("hidden");
+      $("dayTotal").classList.add("hidden");
       return;
     }
     emptyEl.classList.add("hidden");
@@ -1289,6 +1313,7 @@
              <div class="timeline-place-info">
                <div class="timeline-place-name">${escapeHtml(place.name)}</div>
                <div class="timeline-place-sub">${escapeHtml(place.city ? `${place.city} · ${place.country}` : place.country)}</div>
+               ${v.price ? `<div class="timeline-place-price">${formatEuro(v.price)}</div>` : ""}
              </div>
            </div>`
         : `<div class="timeline-place-missing">⚠ Luogo non trovato (forse eliminato)</div>`;
@@ -1308,22 +1333,29 @@
         </div>`;
 
       if (!isLast) {
-        html += v.travelAfter
-          ? `<div class="timeline-row travel-row" data-visit-id="${v.id}">
-               <div class="spine-col"></div>
-               <div class="connector-col travel-arrow-col"><span class="arrow-tip"></span></div>
-               <div class="travel-box" data-role="edit-travel" data-visit-id="${v.id}">
-                 <div>
-                   <div class="travel-box-title">🧭 ${escapeHtml(v.travelAfter.title)}</div>
-                   ${v.travelAfter.description ? `<div class="travel-box-desc">${escapeHtml(v.travelAfter.description)}</div>` : ""}
-                 </div>
-               </div>
-             </div>`
-          : `<div class="timeline-row travel-row" data-visit-id="${v.id}">
-               <div class="spine-col"></div>
-               <div class="connector-col travel-arrow-col"><span class="arrow-tip"></span></div>
-               <button type="button" class="travel-add-btn" data-role="add-travel" data-visit-id="${v.id}">+ Aggiungi viaggio</button>
-             </div>`;
+        const segments = v.travelSegments || [];
+        const blocksHtml = segments
+          .map(
+            (seg) => `
+              <div class="travel-block" data-role="edit-travel" data-visit-id="${v.id}" data-segment-id="${seg.id}">
+                <div>
+                  <div class="travel-block-title">🧭 ${escapeHtml(seg.title)}</div>
+                  ${seg.description ? `<div class="travel-block-desc">${escapeHtml(seg.description)}</div>` : ""}
+                  ${seg.price ? `<div class="travel-block-price">${formatEuro(seg.price)}</div>` : ""}
+                </div>
+              </div>`
+          )
+          .join("");
+
+        html += `
+          <div class="timeline-row travel-row" data-visit-id="${v.id}">
+            <div class="spine-col"></div>
+            <div class="connector-col"></div>
+            <div class="travel-column">
+              ${blocksHtml}
+              <button type="button" class="travel-add-round-btn" data-role="add-travel-segment" data-visit-id="${v.id}" title="Aggiungi un altro viaggio/tappa">+</button>
+            </div>
+          </div>`;
       }
     });
 
@@ -1335,9 +1367,29 @@
     container.querySelectorAll('[data-role="open-place"]').forEach((el) => {
       el.addEventListener("click", (e) => { e.stopPropagation(); openDetail(el.dataset.placeId); });
     });
-    container.querySelectorAll('[data-role="edit-travel"], [data-role="add-travel"]').forEach((el) => {
-      el.addEventListener("click", () => openTravelModal(day.id, el.dataset.visitId));
+    container.querySelectorAll('[data-role="edit-travel"]').forEach((el) => {
+      el.addEventListener("click", () => openTravelModal(day.id, el.dataset.visitId, el.dataset.segmentId));
     });
+    container.querySelectorAll('[data-role="add-travel-segment"]').forEach((el) => {
+      el.addEventListener("click", () => openTravelModal(day.id, el.dataset.visitId, null));
+    });
+
+    renderDayTotal(day);
+  }
+
+  function renderDayTotal(day) {
+    const el = $("dayTotal");
+    let total = 0;
+    let hasAny = false;
+    (day.visits || []).forEach((v) => {
+      if (v.price) { total += Number(v.price); hasAny = true; }
+      (v.travelSegments || []).forEach((seg) => {
+        if (seg.price) { total += Number(seg.price); hasAny = true; }
+      });
+    });
+    if (!hasAny) { el.classList.add("hidden"); return; }
+    el.classList.remove("hidden");
+    el.innerHTML = `<span>Totale stimato per questa giornata</span><span class="day-total-amount">${formatEuro(total)}</span>`;
   }
 
   // ---------- Modale visita ----------
@@ -1374,6 +1426,7 @@
     $("visitId").value = visit ? visit.id : "";
     $("visitTime").value = visit ? visit.time : "";
     $("visitNote").value = visit ? visit.note || "" : "";
+    $("visitPrice").value = visit && visit.price != null ? visit.price : "";
     $("visitDeleteBtn").classList.toggle("hidden", !visit);
     $("visitModalOverlay").classList.remove("hidden");
   }
@@ -1391,14 +1444,16 @@
     const placeId = $("visitPlaceSelect").value;
     const time = $("visitTime").value;
     const note = $("visitNote").value.trim();
+    const priceRaw = $("visitPrice").value;
+    const price = priceRaw !== "" ? Number(priceRaw) : null;
     if (!placeId || !time) { showToast("Seleziona un luogo e un orario per la visita."); return; }
 
     if (editingVisitId) {
       const v = day.visits.find((v) => v.id === editingVisitId);
-      if (v) { v.placeId = placeId; v.time = time; v.note = note; }
+      if (v) { v.placeId = placeId; v.time = time; v.note = note; v.price = price; }
       showToast("Visita aggiornata.");
     } else {
-      day.visits.push({ id: uid(), placeId, time, note, travelAfter: null });
+      day.visits.push({ id: uid(), placeId, time, note, price, travelSegments: [] });
       showToast("Visita aggiunta alla giornata.");
     }
     saveDays();
@@ -1411,12 +1466,12 @@
     if (!editingVisitDayId || !editingVisitId) return;
     const dayId = editingVisitDayId;
     const visitId = editingVisitId;
-    askConfirm("Rimuovere questa visita dalla giornata? Anche l'eventuale viaggio collegato verrà rimosso.", () => {
+    askConfirm("Rimuovere questa visita dalla giornata? Anche gli eventuali viaggi collegati verranno rimossi.", () => {
       const day = days.find((d) => d.id === dayId);
       if (!day) return;
       const sorted = getSortedVisits(day);
       const idx = sorted.findIndex((v) => v.id === visitId);
-      if (idx > 0) sorted[idx - 1].travelAfter = null; // il collegamento verso questa tappa non ha più senso
+      if (idx > 0) sorted[idx - 1].travelSegments = []; // i viaggi verso questa tappa non hanno più senso
       day.visits = day.visits.filter((v) => v.id !== visitId);
       saveDays();
       closeVisitModal();
@@ -1426,24 +1481,27 @@
     });
   }
 
-  // ---------- Modale viaggio ----------
+  // ---------- Modale viaggio (più tappe fra due luoghi) ----------
   let editingTravelDayId = null;
   let editingTravelVisitId = null;
+  let editingTravelSegmentId = null;
 
-  function openTravelModal(dayId, visitId) {
+  function openTravelModal(dayId, visitId, segmentId) {
     const day = days.find((d) => d.id === dayId);
     if (!day) return;
     const visit = day.visits.find((v) => v.id === visitId);
     if (!visit) return;
     editingTravelDayId = dayId;
     editingTravelVisitId = visitId;
+    editingTravelSegmentId = segmentId || null;
 
-    const t = visit.travelAfter;
-    $("travelModalTitle").textContent = t ? "Modifica viaggio" : "Aggiungi viaggio";
+    const seg = segmentId ? (visit.travelSegments || []).find((s) => s.id === segmentId) : null;
+    $("travelModalTitle").textContent = seg ? "Modifica viaggio" : "Aggiungi viaggio";
     $("travelVisitId").value = visitId;
-    $("travelTitle").value = t ? t.title : "";
-    $("travelDescription").value = t ? t.description || "" : "";
-    $("travelDeleteBtn").classList.toggle("hidden", !t);
+    $("travelTitle").value = seg ? seg.title : "";
+    $("travelDescription").value = seg ? seg.description || "" : "";
+    $("travelPrice").value = seg && seg.price != null ? seg.price : "";
+    $("travelDeleteBtn").classList.toggle("hidden", !seg);
     $("travelModalOverlay").classList.remove("hidden");
   }
 
@@ -1451,6 +1509,7 @@
     $("travelModalOverlay").classList.add("hidden");
     editingTravelDayId = null;
     editingTravelVisitId = null;
+    editingTravelSegmentId = null;
   }
 
   function handleTravelFormSubmit(e) {
@@ -1461,22 +1520,35 @@
     if (!visit) return;
     const title = $("travelTitle").value.trim();
     if (!title) { showToast("Il titolo del viaggio è obbligatorio."); return; }
-    visit.travelAfter = { title, description: $("travelDescription").value.trim() };
+    const description = $("travelDescription").value.trim();
+    const priceRaw = $("travelPrice").value;
+    const price = priceRaw !== "" ? Number(priceRaw) : null;
+
+    visit.travelSegments = visit.travelSegments || [];
+    if (editingTravelSegmentId) {
+      const seg = visit.travelSegments.find((s) => s.id === editingTravelSegmentId);
+      if (seg) { seg.title = title; seg.description = description; seg.price = price; }
+      showToast("Viaggio aggiornato.");
+    } else {
+      visit.travelSegments.push({ id: uid(), title, description, price });
+      showToast("Viaggio aggiunto.");
+    }
     saveDays();
     closeTravelModal();
     renderDayPanel();
-    showToast("Viaggio salvato.");
   }
 
   function deleteTravelFromModal() {
-    if (!editingTravelDayId || !editingTravelVisitId) return;
+    if (!editingTravelDayId || !editingTravelVisitId || !editingTravelSegmentId) return;
     const dayId = editingTravelDayId;
     const visitId = editingTravelVisitId;
-    askConfirm("Rimuovere questo collegamento di viaggio?", () => {
+    const segmentId = editingTravelSegmentId;
+    askConfirm("Rimuovere questo viaggio/tappa?", () => {
       const day = days.find((d) => d.id === dayId);
       if (day) {
         const visit = day.visits.find((v) => v.id === visitId);
-        if (visit) visit.travelAfter = null;
+
+        if (visit) visit.travelSegments = (visit.travelSegments || []).filter((s) => s.id !== segmentId);
         saveDays();
       }
       closeTravelModal();
