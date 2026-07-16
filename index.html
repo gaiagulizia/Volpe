@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
@@ -38,6 +40,7 @@
 <nav class="view-tabs">
   <button class="view-tab active" id="tabPlaces" type="button">📍 Luoghi</button>
   <button class="view-tab" id="tabItinerary" type="button">🗓️ Itinerario</button>
+  <button class="view-tab" id="tabMap" type="button">🗺️ Mappa</button>
 </nav>
 
 <section class="controls" id="placesControls">
@@ -139,6 +142,49 @@
   </div>
 </main>
 
+<section class="controls hidden" id="mapControls">
+  <div class="controls-row">
+    <input type="search" id="mapSearchInput" class="search-input" placeholder="Cerca per nome, descrizione, città, nazione o tag…">
+    <button class="btn btn-outline" id="btnMapToggleFilters" type="button">Filtri</button>
+  </div>
+
+  <div class="filters-panel hidden" id="mapFiltersPanel">
+    <div class="filter-group">
+      <label class="filter-label">Nazione</label>
+      <select id="mapCountryFilter" class="select">
+        <option value="">Tutte le nazioni</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label">Città</label>
+      <select id="mapCityFilter" class="select">
+        <option value="">Tutte le città</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label">Stato</label>
+      <select id="mapStatusFilter" class="select">
+        <option value="">Tutti gli stati</option>
+        <option value="visited">Visitato</option>
+        <option value="to_visit">Da visitare</option>
+      </select>
+    </div>
+    <div class="filter-group filter-group-tags">
+      <label class="filter-label">Tag</label>
+      <div class="tag-filter-list" id="mapTagFilterList"></div>
+    </div>
+    <button class="btn btn-text" id="btnMapClearFilters" type="button">Azzera filtri</button>
+  </div>
+</section>
+
+<main id="mapMain" class="hidden">
+  <div class="results-info" id="mapResultsInfo"></div>
+  <div class="map-wrap">
+    <div id="leafletMap" class="leaflet-map"></div>
+  </div>
+  <div class="map-no-coords hidden" id="mapNoCoords"></div>
+</main>
+
 <!-- ===== MODAL: Nuovo / Modifica luogo ===== -->
 <div class="modal-overlay hidden" id="placeModalOverlay">
   <div class="modal modal-large">
@@ -181,9 +227,14 @@
       </div>
 
       <div class="field field-required">
-        <label>Indirizzo o coordinate *</label>
-        <input type="text" id="placeAddress" class="text-input" placeholder="Via, città… oppure 45.4642, 9.1900" required>
-        <p class="field-hint">Se inserisci due numeri separati da virgola verranno letti come coordinate (lat, lng).</p>
+        <label>Indirizzo *</label>
+        <input type="text" id="placeAddress" class="text-input" placeholder="Via, città…" required>
+      </div>
+
+      <div class="field">
+        <label>Coordinate GPS <span class="field-hint-inline">(facoltative)</span></label>
+        <input type="text" id="placeCoordinates" class="text-input" placeholder="Es. 45.4642, 9.1900">
+        <p class="field-hint">Formato "latitudine, longitudine". Se le inserisci, verranno usate al posto dell'indirizzo per il link a Google Maps, per la mappa e per il calcolo delle distanze.</p>
       </div>
 
       <div class="field">
