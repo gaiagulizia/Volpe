@@ -137,6 +137,7 @@
         <div class="timeline-empty hidden" id="timelineEmpty">
           <p class="empty-sub">Nessuna visita in questa giornata. Aggiungine una per iniziare la linea del tempo.</p>
         </div>
+        <div class="day-total hidden" id="dayTotal"></div>
       </div>
     </section>
   </div>
@@ -377,6 +378,11 @@
         <label>Note</label>
         <textarea id="visitNote" class="text-input" rows="3" placeholder="Eventuali note su questa visita…"></textarea>
       </div>
+      <div class="field">
+        <label>Prezzo <span class="field-hint-inline">(facoltativo, in euro)</span></label>
+        <input type="number" id="visitPrice" class="text-input" min="0" step="0.01" placeholder="Es. 12.50">
+        <p class="field-hint">Puoi indicare qui la spesa prevista per questa visita, anche se diversa dal prezzo salvato nella scheda del luogo.</p>
+      </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-danger-outline hidden" id="visitDeleteBtn">Rimuovi visita</button>
         <button type="button" class="btn btn-ghost" id="visitCancelBtn">Annulla</button>
@@ -402,6 +408,10 @@
       <div class="field">
         <label>Descrizione</label>
         <textarea id="travelDescription" class="text-input" rows="3" placeholder="Dettagli facoltativi: linea, biglietto, punto di incontro…"></textarea>
+      </div>
+      <div class="field">
+        <label>Prezzo <span class="field-hint-inline">(facoltativo, in euro)</span></label>
+        <input type="number" id="travelPrice" class="text-input" min="0" step="0.01" placeholder="Es. 8.00">
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-danger-outline hidden" id="travelDeleteBtn">Rimuovi viaggio</button>
