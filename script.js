@@ -16,7 +16,7 @@
 
   // ---------- Google Drive: configurazione ----------
   // 1. Sostituisci il valore qui sotto con il TUO Client ID (vedi README.md, sezione "Sincronizzazione con Google Drive").
-  const GOOGLE_CLIENT_ID = "361800686303-o2l9or0ear8hr052paean09tb9h0h6ti.apps.googleusercontent.com";
+  const GOOGLE_CLIENT_ID = "INSERISCI_QUI_IL_TUO_CLIENT_ID.apps.googleusercontent.com";
   // Scope "drive.appdata": l'app può leggere/scrivere SOLO un proprio file nascosto nel Drive
   // dell'utente, senza mai vedere o toccare gli altri file del suo Google Drive.
   const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata";
@@ -32,6 +32,7 @@
   let currentStatusInForm = "to_visit";
   let coverDataInForm = { type: null, value: null }; // type: 'url' | 'upload'
   let activeTagFilters = new Set();
+  let activeMapTagFilters = new Set();
   let selectionMode = false;
   let selectedPlaceIds = new Set();
   let trashSelectionIds = new Set();
@@ -112,8 +113,7 @@
   }
 
   function getPlaceCoords(place) {
-    const c = tryParseCoords(place.address);
-    return c;
+    return tryParseCoords(place.coordinates);
   }
 
   function haversineKm(a, b) {
@@ -147,8 +147,8 @@
   }
 
   // ---------- Rendering: filtri select ----------
-  function renderCountryFilterOptions() {
-    const sel = $("countryFilter");
+  function renderCountryFilterOptions(selectId) {
+    const sel = $(selectId || "countryFilter");
     const current = sel.value;
     const countries = [...new Set(places.filter((p) => !p.deletedAt).map((p) => p.country.trim()))].sort((a, b) =>
       a.localeCompare(b, "it")
@@ -158,8 +158,8 @@
     if (countries.includes(current)) sel.value = current;
   }
 
-  function renderCityFilterOptions() {
-    const sel = $("cityFilter");
+  function renderCityFilterOptions(selectId) {
+    const sel = $(selectId || "cityFilter");
     const current = sel.value;
     const cities = [...new Set(places.filter((p) => !p.deletedAt && p.city && p.city.trim()).map((p) => p.city.trim()))].sort(
       (a, b) => a.localeCompare(b, "it")
@@ -169,25 +169,26 @@
     if (cities.includes(current)) sel.value = current;
   }
 
-  function renderTagFilterList() {
-    const wrap = $("tagFilterList");
+  function renderTagFilterList(listId, filterSet, onChange) {
+    const wrap = $(listId || "tagFilterList");
+    const set = filterSet || activeTagFilters;
     if (!tags.length) {
       wrap.innerHTML = '<span class="field-hint">Nessun tag creato.</span>';
       return;
     }
     wrap.innerHTML = tags
       .map((t) => {
-        const active = activeTagFilters.has(t.id);
+        const active = set.has(t.id);
         return `<button type="button" class="tag-pill-toggle ${active ? "active" : ""}" data-tag-id="${t.id}" style="${active ? `background:${t.color};border-color:${t.color};` : ""}">${escapeHtml(t.name)}</button>`;
       })
       .join("");
     wrap.querySelectorAll("[data-tag-id]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const id = btn.dataset.tagId;
-        if (activeTagFilters.has(id)) activeTagFilters.delete(id);
-        else activeTagFilters.add(id);
-        renderTagFilterList();
-        renderGrid();
+        if (set.has(id)) set.delete(id);
+        else set.add(id);
+        renderTagFilterList(listId, set, onChange);
+        if (onChange) onChange();
       });
     });
   }
@@ -202,12 +203,8 @@
   }
 
   // ---------- Rendering: griglia principale ----------
-  function getFilteredSortedPlaces() {
-    const q = $("searchInput").value.trim().toLowerCase();
-    const country = $("countryFilter").value;
-    const status = $("statusFilter").value;
-    const sortMode = $("sortSelect").value;
-
+  function filterPlacesCore(query, country, city, status, tagFilterSet) {
+    const q = query.trim().toLowerCase();
     let list = places.filter((p) => !p.deletedAt);
 
     if (q) {
@@ -223,12 +220,23 @@
       });
     }
     if (country) list = list.filter((p) => p.country.trim() === country);
-    const city = $("cityFilter").value;
     if (city) list = list.filter((p) => (p.city || "").trim() === city);
     if (status) list = list.filter((p) => p.status === status);
-    if (activeTagFilters.size) {
-      list = list.filter((p) => (p.tags || []).some((tid) => activeTagFilters.has(tid)));
+    if (tagFilterSet && tagFilterSet.size) {
+      list = list.filter((p) => (p.tags || []).some((tid) => tagFilterSet.has(tid)));
     }
+    return list;
+  }
+
+  function getFilteredSortedPlaces() {
+    const sortMode = $("sortSelect").value;
+    let list = filterPlacesCore(
+      $("searchInput").value,
+      $("countryFilter").value,
+      $("cityFilter").value,
+      $("statusFilter").value,
+      activeTagFilters
+    );
 
     if (sortMode === "alpha") {
       list.sort((a, b) => a.name.localeCompare(b.name, "it"));
@@ -247,6 +255,16 @@
       });
     }
     return list;
+  }
+
+  function getMapFilteredPlaces() {
+    return filterPlacesCore(
+      $("mapSearchInput").value,
+      $("mapCountryFilter").value,
+      $("mapCityFilter").value,
+      $("mapStatusFilter").value,
+      activeMapTagFilters
+    ).sort((a, b) => a.name.localeCompare(b.name, "it"));
   }
 
   function renderGrid() {
@@ -547,6 +565,7 @@
     $("placeCountry").value = place ? place.country : "";
     $("placeCity").value = place ? place.city || "" : "";
     $("placeAddress").value = place ? place.address : "";
+    $("placeCoordinates").value = place ? place.coordinates || "" : "";
     $("placeDescription").value = place ? place.description || "" : "";
     $("placeHours").value = place ? place.openingHours || "" : "";
     $("placePrice").value = place ? place.price || "" : "";
@@ -628,8 +647,13 @@
     const name = $("placeName").value.trim();
     const country = $("placeCountry").value.trim();
     const address = $("placeAddress").value.trim();
+    const coordinates = $("placeCoordinates").value.trim();
     if (!name || !country || !address) {
       showToast("Compila tutti i campi obbligatori.");
+      return;
+    }
+    if (coordinates && !tryParseCoords(coordinates)) {
+      showToast('Formato coordinate non valido: usa "latitudine, longitudine" (es. 45.4642, 9.1900).');
       return;
     }
 
@@ -638,6 +662,7 @@
       country,
       city: $("placeCity").value.trim(),
       address,
+      coordinates,
       description: $("placeDescription").value.trim(),
       openingHours: $("placeHours").value.trim(),
       price: $("placePrice").value.trim(),
@@ -683,6 +708,7 @@
       <div class="detail-meta">
         <span><strong>Nazione:</strong> ${escapeHtml(p.country)}</span>
         ${p.city ? `<span><strong>Città:</strong> ${escapeHtml(p.city)}</span>` : ""}
+        ${p.coordinates ? `<span><strong>Coordinate:</strong> ${escapeHtml(p.coordinates)}</span>` : ""}
         <span><strong>Stato:</strong> ${statusLabel}</span>
         ${p.openingHours ? `<span><strong>Orari:</strong> ${escapeHtml(p.openingHours)}</span>` : ""}
         ${p.price ? `<span><strong>Prezzo:</strong> ${escapeHtml(p.price)}</span>` : ""}
@@ -1039,13 +1065,116 @@
 
   // ---------- Navigazione fra schermate ----------
   function switchView(view) {
-    const isPlaces = view === "places";
-    $("tabPlaces").classList.toggle("active", isPlaces);
-    $("tabItinerary").classList.toggle("active", !isPlaces);
-    $("placesControls").classList.toggle("hidden", !isPlaces);
-    $("placesMain").classList.toggle("hidden", !isPlaces);
-    $("itineraryMain").classList.toggle("hidden", isPlaces);
-    if (!isPlaces) { renderDaysList(); renderDayPanel(); }
+    $("tabPlaces").classList.toggle("active", view === "places");
+    $("tabItinerary").classList.toggle("active", view === "itinerary");
+    $("tabMap").classList.toggle("active", view === "map");
+
+    $("placesControls").classList.toggle("hidden", view !== "places");
+    $("placesMain").classList.toggle("hidden", view !== "places");
+    $("itineraryMain").classList.toggle("hidden", view !== "itinerary");
+    $("mapControls").classList.toggle("hidden", view !== "map");
+    $("mapMain").classList.toggle("hidden", view !== "map");
+
+    if (view === "itinerary") { renderDaysList(); renderDayPanel(); }
+    if (view === "map") { renderMapControls(); renderMapView(); }
+  }
+
+  // ---------- Mappa ----------
+  let leafletMapInstance = null;
+  let leafletMarkersLayer = null;
+
+  function initLeafletMap() {
+    if (leafletMapInstance || !window.L) return;
+    leafletMapInstance = L.map("leafletMap", { scrollWheelZoom: true }).setView([20, 10], 2);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap</a> contributors",
+      maxZoom: 19,
+    }).addTo(leafletMapInstance);
+    leafletMarkersLayer = L.layerGroup().addTo(leafletMapInstance);
+
+    // Apre la scheda del luogo quando si clicca il pulsante dentro un popup (delegazione: i popup sono ricreati ad ogni update).
+    leafletMapInstance.getContainer().addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-role=popup-open-place]");
+      if (btn) openDetail(btn.dataset.placeId);
+    });
+  }
+
+  function renderMapControls() {
+    renderCountryFilterOptions("mapCountryFilter");
+    renderCityFilterOptions("mapCityFilter");
+    renderTagFilterList("mapTagFilterList", activeMapTagFilters, renderMapView);
+  }
+
+  function buildMarkerIcon(place) {
+    const cls = place.status === "visited" ? "visited" : "to_visit";
+    return L.divIcon({
+      className: "",
+      html: `<div class="map-marker-pin ${cls}"><span class="map-marker-pin-inner">${place.status === "visited" ? "✓" : "★"}</span></div>`,
+      iconSize: [30, 30],
+      iconAnchor: [15, 30],
+      popupAnchor: [0, -28],
+    });
+  }
+
+  function buildPopupHtml(place) {
+    const cover = place.coverPhoto
+      ? `<img class="map-popup-cover" src="${escapeHtml(place.coverPhoto)}" alt="">`
+      : `<div class="map-popup-cover-placeholder"></div>`;
+    return `
+      <div class="map-popup-card">
+        ${cover}
+        <div class="map-popup-body">
+          <div class="map-popup-name">${escapeHtml(place.name)}</div>
+          <div class="map-popup-sub">${escapeHtml(place.city ? `${place.city} · ${place.country}` : place.country)}</div>
+          <div class="map-popup-actions">
+            <button type="button" data-role="popup-open-place" data-place-id="${place.id}">Apri scheda</button>
+            <a href="${googleMapsUrl(place)}" target="_blank" rel="noopener">Google Maps</a>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderMapView() {
+    if (!window.L) {
+      $("mapMain").innerHTML = '<p class="field-hint">Impossibile caricare la mappa (Leaflet non è stato scaricato). Controlla la connessione internet e ricarica la pagina.</p>';
+      return;
+    }
+    initLeafletMap();
+    if (!leafletMapInstance) return;
+
+    const filtered = getMapFilteredPlaces();
+    const withCoords = filtered.filter((p) => getPlaceCoords(p));
+    const withoutCoordsCount = filtered.length - withCoords.length;
+
+    leafletMarkersLayer.clearLayers();
+    const bounds = [];
+    withCoords.forEach((p) => {
+      const c = getPlaceCoords(p);
+      const marker = L.marker([c.lat, c.lng], { icon: buildMarkerIcon(p) });
+      marker.bindPopup(buildPopupHtml(p));
+      marker.addTo(leafletMarkersLayer);
+      bounds.push([c.lat, c.lng]);
+    });
+
+    if (bounds.length === 1) {
+      leafletMapInstance.setView(bounds[0], 12);
+    } else if (bounds.length > 1) {
+      leafletMapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    } else {
+      leafletMapInstance.setView([20, 10], 2);
+    }
+
+    // Il container potrebbe essere stato nascosto quando Leaflet ha calcolato le dimensioni: le ricalcoliamo.
+    setTimeout(() => { if (leafletMapInstance) leafletMapInstance.invalidateSize(); }, 80);
+
+    $("mapResultsInfo").textContent = `${withCoords.length} luog${withCoords.length === 1 ? "o" : "hi"} sulla mappa`;
+    const noCoordsEl = $("mapNoCoords");
+    if (withoutCoordsCount > 0) {
+      noCoordsEl.classList.remove("hidden");
+      noCoordsEl.textContent = `⚠ ${withoutCoordsCount} luogo/luoghi filtrati non ${withoutCoordsCount === 1 ? "compare" : "compaiono"} in mappa perché ${withoutCoordsCount === 1 ? "non ha" : "non hanno"} coordinate GPS: compila il campo "Coordinate GPS" nel formato "lat, lng" (es. 45.4642, 9.1900) per vederlo/i.`;
+    } else {
+      noCoordsEl.classList.add("hidden");
+    }
   }
 
   // ---------- Giornate di viaggio ----------
@@ -1365,12 +1494,17 @@
     renderGrid();
     renderDaysList();
     renderDayPanel();
+    if (!$("mapMain").classList.contains("hidden")) {
+      renderMapControls();
+      renderMapView();
+    }
   }
 
   // ---------- Event bindings ----------
   function bindEvents() {
     $("tabPlaces").addEventListener("click", () => switchView("places"));
     $("tabItinerary").addEventListener("click", () => switchView("itinerary"));
+    $("tabMap").addEventListener("click", () => switchView("map"));
 
     $("btnNewDay").addEventListener("click", createNewDay);
     $("btnDeleteDay").addEventListener("click", () => { if (selectedDayId) deleteDay(selectedDayId); });
@@ -1489,6 +1623,20 @@
       renderGrid();
     });
     $("btnToggleFilters").addEventListener("click", () => $("filtersPanel").classList.toggle("hidden"));
+
+    $("mapSearchInput").addEventListener("input", renderMapView);
+    $("mapCountryFilter").addEventListener("change", renderMapView);
+    $("mapCityFilter").addEventListener("change", renderMapView);
+    $("mapStatusFilter").addEventListener("change", renderMapView);
+    $("btnMapClearFilters").addEventListener("click", () => {
+      $("mapCountryFilter").value = "";
+      $("mapCityFilter").value = "";
+      $("mapStatusFilter").value = "";
+      activeMapTagFilters.clear();
+      renderTagFilterList("mapTagFilterList", activeMapTagFilters, renderMapView);
+      renderMapView();
+    });
+    $("btnMapToggleFilters").addEventListener("click", () => $("mapFiltersPanel").classList.toggle("hidden"));
 
     $("sortSelect").addEventListener("change", () => {
       const isProximity = $("sortSelect").value === "proximity";
